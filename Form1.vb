@@ -913,8 +913,8 @@ Public Class Form1
         ' pd.DefaultPageSettings.Landscape = False
 
         Dim g = e.Graphics
-            Dim y = 750
-            Dim font As New Font("Segoe UI", 12)
+        Dim y = 750
+        Dim font As New Font("Segoe UI", 12)
             g.DrawString("Placed Words:", New Font(font, FontStyle.Bold), Brushes.Black, 50, y)
             y += 30
             If PlacedWords.Count = 0 Then
