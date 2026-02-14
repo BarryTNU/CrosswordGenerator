@@ -15,6 +15,7 @@ Public Class Form1
     Dim Grid(GridSize - 1, GridSize - 1) As Char
     Dim lstClues As New List(Of Clue)
     Dim Dictionary As New List(Of ClueEntry)
+    Dim WordLookup As New HashSet(Of String) ' For fast word existence checks
     Dim PuzzleNumber As Integer = 0
     Dim ClueNumbers(GridSize - 1, GridSize - 1) As Integer
 
@@ -33,7 +34,13 @@ Public Class Form1
         Public Clue As String
     End Class
 
+    Public Enum DirectionType
+        Across
+        Down
+    End Enum
 
+
+    Public Const Down As Boolean = False
     Public Puzzle As String = ""
     Public PrintPageIndex As Integer = 0
     Public WordList As List(Of String)
@@ -75,6 +82,7 @@ Public Class Form1
     Public CluesDown As New List(Of Clue)
     Public txt_Alphabet As New TextBox
     Private LstRnr As List(Of Integer)
+    Const EMPTY As Char = "."c
 
 
 #End Region
@@ -105,8 +113,13 @@ Public Class Form1
 
         If Puzzle = "" Then Puzzle = "cWord" ' Default to codeword if not set
 
+        'Puzzle = "cWord"
+        ' Puzzle = "xWord"
+
         LoadDictionary(WordFilePath)
+
         SetupGrid()
+        InitGrid()
         SetupUI()
         If Puzzle = "cWord" Then
             SetupLetterGrid()
@@ -129,14 +142,17 @@ Public Class Form1
 #Region "DICTIONARY"
     Sub LoadDictionary(path As String) ' Load the word list from CSV file
 
-            Dictionary.Clear()
+        Dictionary.Clear()
 
-            For Each line In File.ReadAllLines(path).Skip(1)
-                Dim p = line.Split(","c, 2)
-                Dictionary.Add(New ClueEntry With {.Word = p(0).Trim().ToUpper(), .Clue = p(1).Trim().ToUpper()})
-            Next
+        For Each line In File.ReadAllLines(path).Skip(1)
+            Dim p = line.Split(","c, 2)
+            Dictionary.Add(New ClueEntry With {.Word = p(0).Trim().ToUpper(), .Clue = p(1).Trim().ToUpper()})
+        Next
 
-        End Sub
+        For Each entry In Dictionary
+            WordLookup.Add(entry.Word.ToUpper())
+        Next
+    End Sub
 
 #End Region
 
@@ -270,13 +286,11 @@ Public Class Form1
             lstAcross.Dock = DockStyle.Top
             lstAcross.Width = pnlClues.Width
             lstAcross.ScrollAlwaysVisible = False
-            lstAcross.Items.Add("Across Clues:")
 
             lstDown.Font = New Font("Segoe UI", 10)
             lstDown.Width = pnlClues.Width
             lstDown.ScrollAlwaysVisible = False
             lstDown.Location = New Point(0, pnlClues.Height \ 2)
-            lstDown.Items.Add("Down Clues:")
 
             pnlClues.Controls.Add(lstDown)
             pnlClues.Controls.Add(lstAcross)
@@ -347,14 +361,42 @@ Public Class Form1
         txt_Alphabet.Text = "A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z"
         Me.Controls.Add(txt_Alphabet)
     End Sub
+    Sub InitGrid() ' Initialize the grid and UI for a new puzzle
+        PuzzleNumber = rnd.Next(1, 1000)
+        Me.Text = "VB.NET Codeword" & " - Puzzle #" & PuzzleNumber.ToString()
+
+        lstClues.Clear()
+        lstAcross.Items.Clear()
+        lstAcross.Items.Add("Across Clues:")
+        lstDown.Items.Clear()
+        lstDown.Items.Add("Down Clues:")
+
+
+        For r = 0 To GridSize - 1
+            For c = 0 To GridSize - 1
+                Grid(r, c) = EMPTY
+            Next
+        Next
+
+        For Each col As DataGridViewColumn In DgvGrid.Columns
+            col.Width = 50
+        Next
+
+        For Each row As DataGridViewRow In DgvGrid.Rows
+            For Each cell As DataGridViewCell In row.Cells
+                cell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter
+            Next
+        Next
+        lstClues.Clear()
+        PlacedWords.Clear()
+    End Sub
+
 
 #End Region
 
 #Region "CROSSWORD ENGINE"
 
     Sub GeneratePuzzle() ' This is the main puzzle generation routine
-
-        InitGrid()
 
         ' Shuffle dictionary
         Dim shuffled = Dictionary.OrderBy(Function(x) rnd.Next()).ToList()
@@ -363,12 +405,11 @@ Public Class Form1
         Dim Words = shuffled.Take(60).OrderByDescending(Function(x) x.Word.Length).ToList()
 
         ' Place longest of the random set in the middle of the grid, horizontally
-        PlaceWord(Words(0), GridSize \ 2, (GridSize - Words(0).Word.Length) \ 2, True)
-
+        PlaceWord(Words(0), GridSize \ 2, (GridSize - Words(0).Word.Length) \ 2, DirectionType.Across)
         ' Place remaining words
         For i = 1 To Words.Count - 1
             If WordUsed(Words(i).Word) Then Continue For
-            TryPlaceIntersect(Words(i))
+            TryPlaceWord(Words(i))
         Next
 
         RenderGrid()
@@ -376,163 +417,232 @@ Public Class Form1
     End Sub
 
 
-    Sub InitGrid() ' Initialize the grid and UI for a new puzzle
-            PuzzleNumber = rnd.Next(1, 1000)
+    '===================== PLACEMENT LOGIC =====================
 
-        lstClues.Clear()
-        lstAcross.Items.Clear()
-        lstAcross.Items.Add("Across Clues:")
-        lstDown.Items.Clear()
-        lstDown.Items.Add("Down Clues:")
+    Function TryPlaceWord(entry As ClueEntry) As Boolean
+        Dim word = entry.Word.ToUpper()
 
-        Me.Text = "VB.NET Codeword" & " - Puzzle #" & PuzzleNumber.ToString()
+        For r = 0 To GridSize - 1
+            For c = 0 To GridSize - 1
 
-        For r = 0 To GridSize - 1 'Start with all empty cells
-                For c = 0 To GridSize - 1
-                    Grid(r, c) = "."c 'cell will be rendered as black
-                Next
-            Next
-
-        For Each col As DataGridViewColumn In DgvGrid.Columns
-                col.Width = 50
-            Next
-
-            For Each row As DataGridViewRow In DgvGrid.Rows
-                For Each cell As DataGridViewCell In row.Cells
-                    cell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter
-                Next
-            Next
-            lstClues.Clear()
-            PlacedWords.Clear()
-        End Sub
-
-        Function WordUsed(Word As String) 'Check if word has already been placed
-            For Each item In PlacedWords
-                If Word = item.ToString() Then 'word has been used,
-                    Return True
-                End If
-            Next
-            Return False
-        End Function
-        Function TryPlaceIntersect(Clue As ClueEntry) As Boolean ' Try to place a word by intersecting with existing letters
-
-            For r = 1 To GridSize - 1
-                For c = 0 To GridSize - 1
-                    If Grid(r, c) = "."c Then Continue For
-
-                    For i = 0 To Clue.Word.Length - 1
-                        If Clue.Word(i) = Grid(r, c) Then
-
-                            If CanPlace(Clue.Word, r, c - i, True) Then 'Try horizontal first
-                                PlaceWord(Clue, r, c - i, True)
-                                Return True
-                            End If
-
-                            If CanPlace(Clue.Word, r - i, c, False) Then 'Then try vertical
-                                PlaceWord(Clue, r - i, c, False)
-                                Return True
-                            End If
-
+                ' Try ACROSS
+                For i = 0 To word.Length - 1
+                    If Grid(r, c) = word(i) Or Grid(r, c) = EMPTY Then
+                        Dim startCol = c - i
+                        If startCol >= 0 AndAlso CanPlace(word, r, startCol, DirectionType.Across) Then
+                            PlaceWord(entry, r, startCol, DirectionType.Across)
+                            Return True
                         End If
-                    Next
+                    End If
                 Next
+
+                ' Try DOWN
+                For i = 0 To word.Length - 1
+                    If Grid(r, c) = word(i) Or Grid(r, c) = EMPTY Then
+                        Dim startRow = r - i
+                        If startRow >= 0 AndAlso CanPlace(word, startRow, c, DirectionType.Down) Then
+                            PlaceWord(entry, startRow, c, DirectionType.Down)
+                            Return True
+                        End If
+                    End If
+                Next
+
             Next
+        Next
 
-            Return False
+        Return False
+    End Function
 
-        End Function
+    Function CanPlace(word As String, row As Integer, col As Integer, dir As DirectionType) As Boolean
 
-        Function CanPlace(word As String, row As Integer, col As Integer, horiz As Boolean) As Boolean ' Check if a word can be placed at the specified location
-            Dim r, c As Integer
+        If dir = DirectionType.Across Then
 
-            ' Reject negative starts
+            ' --- Bounds ---
+            If col < 0 OrElse col + word.Length > GridSize Then Return False
 
-            If row < 0 OrElse col < 0 Then Return False
+            ' --- Cell before start ---
+            If col > 0 AndAlso Grid(row, col - 1) <> EMPTY Then Return False
 
-            If horiz AndAlso col + word.Length > GridSize Then Return False
-            If Not horiz AndAlso row + word.Length > GridSize Then Return False
+            ' --- Cell after end ---
+            If col + word.Length < GridSize AndAlso
+           Grid(row, col + word.Length) <> EMPTY Then Return False
 
-            For i = 0 To word.Length - 1
-                r = If(horiz, row, row + i)
-                c = If(horiz, col + i, col)
+            For i As Integer = 0 To word.Length - 1
 
-                If Grid(r, c) <> "."c AndAlso Grid(r, c) <> word(i) Then
+                Dim r = row
+                Dim c = col + i
+                Dim gridChar = Grid(r, c)
+                Dim letter = word(i)
+
+                ' --- Letter compatibility ---
+                If gridChar <> EMPTY AndAlso gridChar <> letter Then
                     Return False
                 End If
+
+                ' --- If NOT crossing, validate vertical fragment ---
+                If gridChar = EMPTY Then
+                    If CreatesInvalidVerticalWord(r, c, letter) Then
+                        Return False
+                    End If
+                End If
+
             Next
 
-            Return True
-        End Function
+        Else ' DOWN
 
-        Function PlaceWord(entry As ClueEntry, row As Integer, col As Integer, horizontal As Boolean) As Boolean ' Place a word on the grid
+            ' --- Bounds ---
+            If row < 0 OrElse row + word.Length > GridSize Then Return False
 
-            Dim Word = entry.Word
-            Dim Clue = entry.Clue
+            ' --- Cell before start ---
+            If row > 0 AndAlso Grid(row - 1, col) <> EMPTY Then Return False
 
-            ' Bounds check
-            If horizontal Then
-                If col < 0 OrElse col + Word.Length > GridSize Then Return False
-            Else
-                If row < 0 OrElse row + Word.Length > GridSize Then Return False
-            End If
+            ' --- Cell after end ---
+            If row + word.Length < GridSize AndAlso
+           Grid(row + word.Length, col) <> EMPTY Then Return False
 
-            ' Collision check
-            For i = 0 To Word.Length - 1
-                Dim r = If(horizontal, row, row + i)
-                Dim c = If(horizontal, col + i, col)
+            For i As Integer = 0 To word.Length - 1
 
-                If Grid(r, c) <> "."c AndAlso Grid(r, c) <> Word(i) Then
+                Dim r = row + i
+                Dim c = col
+                Dim gridChar = Grid(r, c)
+                Dim letter = word(i)
+
+                ' --- Letter compatibility ---
+                If gridChar <> EMPTY AndAlso gridChar <> letter Then
                     Return False
                 End If
+
+                ' --- If NOT crossing, validate horizontal fragment ---
+                If gridChar = EMPTY Then
+                    If CreatesInvalidHorizontalWord(r, c, letter) Then
+                        Return False
+                    End If
+                End If
+
             Next
 
-            ' Place letters
-            For i = 0 To Word.Length - 1
-                Dim r = If(horizontal, row, row + i)
-                Dim c = If(horizontal, col + i, col)
-                Dim cVal As String = Word(i)
-                Grid(r, c) = cVal
-            Next
-
-            ' Force black cell AFTER word
-            If horizontal Then
-                Dim afterCol = col + Word.Length
-                If afterCol < GridSize AndAlso Grid(row, afterCol) = "."c Then
-                    Grid(row, afterCol) = "."c
-                End If
-            Else
-                Dim afterRow = row + Word.Length
-                If afterRow < GridSize AndAlso Grid(afterRow, col) = "."c Then
-                    Grid(afterRow, col) = "."c
-                End If
-            End If
-
-        If Puzzle = "xWord" Then
-            lstClues.Add(New Clue With {.Word = Word, .Row = row, .Col = col, .IsAcross = horizontal, .Clue = entry.Clue})
-            If horizontal Then
-                lstAcross.Items.Add($"{lstClues.Count }. {entry.Clue}")
-            Else
-                lstDown.Items.Add($"{lstClues.Count }. {entry.Clue}")
-            End If
-
-            lstAcross.Height = lstAcross.Items.Count * 20 + 30 ' Adjust height based on number of clues
-            lstDown.Height = lstDown.Items.Count * 20 + 30 ' Adjust height based on number of clues
-            lstDown.Location = New Point(0, pnlClues.Height \ 2) ' Keep down clues in the bottom half of the panel
         End If
-        ' Record placed word
-        PlacedWords.Add(Word)
+
         Return True
 
     End Function
 
+    Function CreatesInvalidVerticalWord(row As Integer,
+                                    col As Integer,
+                                    newLetter As Char) As Boolean
+
+        Dim r = row
+        Dim word As String = ""
+
+        ' Move up
+        While r > 0 AndAlso Grid(r - 1, col) <> EMPTY
+            r -= 1
+        End While
+
+        ' Build downward
+        Dim tempRow = r
+
+        While tempRow < GridSize AndAlso
+          (Grid(tempRow, col) <> EMPTY OrElse tempRow = row)
+
+            If tempRow = row Then
+                word &= newLetter
+            Else
+                word &= Grid(tempRow, col)
+            End If
+            tempRow += 1
+        End While
+
+        If word.Length > 1 AndAlso Not WordLookup.Contains(word) Then
+            Return True
+        End If
+
+        Return False
+
+    End Function
+
+    Function CreatesInvalidHorizontalWord(row As Integer, col As Integer, newLetter As Char) As Boolean
+
+        Dim c = col
+        Dim word As String = ""
+
+        ' Move left
+        While c > 0 AndAlso Grid(row, c - 1) <> EMPTY
+            c -= 1
+        End While
+
+        ' Build rightward
+        Dim tempCol = c
+
+        While tempCol < 15 AndAlso' Width AndAlso
+          (Grid(row, tempCol) <> EMPTY OrElse tempCol = col)
+
+            If tempCol = col Then
+                word &= newLetter
+            Else
+                word &= Grid(row, tempCol)
+            End If
+
+            tempCol += 1
+        End While
+
+        If word.Length > 1 AndAlso Not WordLookup.Contains(word) Then
+            Return True
+        End If
+
+        Return False
+
+    End Function
+
+
+    Function WordUsed(Word As String) 'Check if word has already been placed
+        For Each item In PlacedWords
+            If Word = item.ToString() Then 'word has been used,
+                Return True
+            End If
+        Next
+        Return False
+    End Function
+
+    '============== END OF PLACEMENT LOGIC ==============
+
+    '============== PLACEMENT ==============
+    Sub PlaceWord(entry As ClueEntry, row As Integer, col As Integer, dir As DirectionType)
+        Dim word = entry.Word.ToUpper()
+        Dim NrOfLetters As String = word.Length.ToString()
+        NrOfLetters = " (" & NrOfLetters & ") "
+
+        If dir = DirectionType.Across Then
+            For i = 0 To word.Length - 1
+                Grid(row, col + i) = word(i)
+            Next
+        Else ' DOWN
+            For i = 0 To word.Length - 1
+                Grid(row + i, col) = word(i)
+            Next
+        End If
+
+        If Puzzle = "xWord" Then
+            If dir = DirectionType.Across Then
+                lstClues.Add(New Clue With {.Word = word, .Row = row, .Col = col, .IsAcross = True, .Clue = entry.Clue})
+            Else
+                lstClues.Add(New Clue With {.Word = word, .Row = row, .Col = col, .IsAcross = False, .Clue = entry.Clue})
+            End If
+        End If
+
+    End Sub
+
+
+    '============== END OF PLACEMENT LOGIC ==============
+
 #End Region
 
 #Region "RENDER"
+    '=============Up until now all operations have been on the Grid() array. This routine renders the grid to the DataGridView and applies cell coloring. It also assigns clue numbers for crosswords and random letter-number mappings for codeword puzzles. =============
 
     Sub RenderGrid() ' Render the grid to the DataGridView
 
-        Dim ShowSolution As Boolean = True 'If true shows letters in cells. Set to false for blank grid.
-        'ShowSolution = False ' Set to false for codeword puzzles, true for crosswords
+        Dim ShowSolution As Boolean = True 'If true shows letters in cells. Set to false for codeword puzzles, true for crosswords
 
         For r = 0 To GridSize - 1
             For c = 0 To GridSize - 1
@@ -549,31 +659,193 @@ Public Class Form1
             Next
         Next
 
-
         If Puzzle = "xWord" Then
             Dim ClueNumber As Integer = 0
+            reorderClueList() ' Ensure clues are in ascending order based on their position on the grid before assigning numbers
             For i = 0 To lstClues.Count - 1
                 Dim row = lstClues(i).Row
                 Dim col = lstClues(i).Col
                 Dim across = lstClues(i).IsAcross
-                ClueNumber += 1
+                ClueNumber = lstClues(i).ClueNumber
 
                 If across Then
                     cD(row, col).AcrossNumber = ClueNumber
                     lstClues(i).ClueNumber = ClueNumber
+                    lstClues(i).IsAcross = True
                 Else
                     cD(row, col).DownNumber = ClueNumber
                     lstClues(i).ClueNumber = ClueNumber
+                    lstClues(i).IsAcross = False
                 End If
-
             Next
+
+            AddCluesToList()
         Else
             AssignNumbersToLetters()
         End If
 
     End Sub
+    Sub AddCluesToList()
 
-    Private Sub dgvGrid_CellPainting(sender As Object, e As DataGridViewCellPaintingEventArgs) 'Handles DgvGrid.CellPainting
+        For Each clue In lstClues
+            If clue.IsAcross Then
+                lstAcross.Items.Add($"{clue.ClueNumber}: {clue.Clue}")
+            Else
+                lstDown.Items.Add($"{clue.ClueNumber}:  {clue.Clue}")
+            End If
+        Next
+
+        lstAcross.Height = lstAcross.Items.Count * 20 + 30 ' Adjust height based on number of clues
+        lstDown.Height = lstDown.Items.Count * 20 + 30 ' Adjust height based on number of clues
+        lstDown.Location = New Point(0, pnlClues.Height \ 2) ' Keep down clues in the bottom half of the panel
+
+    End Sub
+
+    Public Sub AssignNumbersToLetters() ' Assign random numbers to letters A-Z in the grid and populate letter grid with numbers.
+        Dim Letter As String = ""
+        Dim Number As Integer
+        Dim ch As Char
+        Dim rnd As New Random()
+        Dim r As Integer
+        Dim c As Integer
+        Dim i As Integer
+
+        'Generate a list of letters A-Z and assign each a random number 1-26
+        Dim Alphabet As String = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        Dim combined As New List(Of LetterNumber)
+
+        Dim lst_letters As New List(Of Char)
+        For i = 0 To 25
+            ch = Alphabet(i)
+            lst_letters.Add(ch)
+        Next
+
+        Dim lst_Numbers As New List(Of Integer)
+        For i = 1 To 26
+            lst_Numbers.Add(i)
+        Next
+        ' Shuffle the numbers
+        lst_Numbers = lst_Numbers.OrderBy(Function(x) rnd.Next()).ToList()
+
+        'Combine the two lists
+        If lst_letters.Count <> lst_Numbers.Count Then
+            Throw New InvalidOperationException("Lists must be the same length")
+            Exit Sub
+        End If
+
+        For i = 0 To Math.Min(lst_letters.Count, lst_Numbers.Count) - 1
+            combined.Add(New LetterNumber With {
+        .Letter = lst_letters(i),
+        .Number = lst_Numbers(i)
+    })
+        Next
+
+        With DgvGrid
+            For r = 0 To GridSize - 1
+                For c = 0 To GridSize - 1
+                    Dim v = .Rows(r).Cells(c).Value
+                    If v Is Nothing Then Continue For
+
+                    For Each item In combined
+                        If item.Letter = v Then
+                            Number = item.Number
+                            .Rows(r).Cells(c).Value = CStr(Number)
+                            Exit For
+                        End If
+                    Next
+                Next
+            Next
+        End With
+
+        '===============Replace letters with numbers on the grid===========
+
+        Dim UsedNumbers As New List(Of Integer)
+        Dim hits As Integer = 0 ' count of letters placed
+        Dim rowIndex As Integer = 1
+        Dim iterations As Integer = GridSize * GridSize 'to prevent endless loops
+        Dim nrLoops As Integer = 0
+
+        If combined Is Nothing OrElse combined.Count = 0 Then Exit Sub
+        ' Shuffle the combined list
+        combined = combined.OrderBy(Function(x) rnd.Next()).ToList()
+
+        ' Clear Letters from LetterGrid()
+        With letterdg
+            For c = 0 To .ColumnCount - 1
+                .Rows(1).Cells(c).Value = Nothing
+                .Rows(3).Cells(c).Value = Nothing
+            Next
+        End With
+
+        i = 1
+        NrOfClues = Int(cmbNrClues.SelectedIndex)
+        Do Until hits = NrOfClues Or nrLoops = iterations
+            nrLoops += 1
+            'take an entry from combined list
+            Dim Clue As LetterNumber
+            Clue = combined(i)
+            Letter = Clue.Letter
+            Number = Clue.Number   ' 1–26
+
+            If UsedNumbers.Contains(Number) Then Continue Do ' skip duplicates
+            UsedNumbers.Add(Number)
+
+            'Confirm that the letter is used in the puzzle
+            Dim LetterUsed As Boolean = False
+
+            For r = 0 To GridSize - 1
+                For c = 0 To GridSize - 1
+                    If Grid(r, c).ToString() = Letter Then
+                        LetterUsed = True
+                        If Number > 13 Then 'it goes in row 3
+                            rowIndex = 3
+                            letterdg.Rows(rowIndex).Cells(Number - 14).Value = Letter
+                        Else
+                            rowIndex = 1 ' it goes in row 1
+                            letterdg.Rows(rowIndex).Cells(Number - 1).Value = Letter
+                        End If
+                        hits += 1
+                        c = GridSize - 1 'force exit from inner loop
+                        r = GridSize - 1 'force exit from outer loop
+                    End If
+                Next
+            Next
+
+            i += 1 'increment the index
+            If i >= 25 Then i = 0 ' reset to 0 if exceeding list size
+        Loop
+
+    End Sub
+    Sub reorderClueList()
+        ' This routine ensures that the clues are listed in ascending order based on their position on the grid
+        Dim ClueNumber As Integer = 0
+        lstClues = lstClues.OrderBy(Function(c) c.Row).ThenBy(Function(c) c.Col).ToList()
+
+        For Each c In lstClues
+            ClueNumber += 1
+            c.ClueNumber = ClueNumber
+        Next
+
+    End Sub
+
+    Function GenerateRandomNumber(n As Integer)
+        Dim rnd As New Random()
+        Dim nums As New HashSet(Of Integer)
+        Dim counter As Integer = 0
+        While counter < n
+            nums.Add(rnd.Next(1, n))
+            counter += 1
+        End While
+        Dim result = nums.ToList()
+        Return result
+    End Function
+
+
+#End Region
+
+    '==================== CELL PAINTING FOR CLUE NUMBERS ====================
+#Region "Cell Painting"
+    Private Sub dgvGrid_CellPainting(sender As Object, e As DataGridViewCellPaintingEventArgs)
 
         If e.RowIndex < 0 OrElse e.ColumnIndex < 0 Then Return
         Dim Row = e.RowIndex
@@ -581,16 +853,15 @@ Public Class Form1
         ' Let grid paint background & borders
         e.Paint(e.CellBounds, DataGridViewPaintParts.All)
 
-        Using f As New Font("Segoe UI", 7, FontStyle.Regular),
-          b As New SolidBrush(Color.Black)
+        Using f As New Font("Segoe UI", 7, FontStyle.Regular), b As New SolidBrush(Color.Black)
 
             ' Across number (top-right)
             If cD(Row, Col).AcrossNumber > 0 Then
                 e.Graphics.DrawString(
-                cD(Row, Col).AcrossNumber.ToString(),
-                f, b,
-                e.CellBounds.Left + 33,
-                e.CellBounds.Top + 2
+                    cD(Row, Col).AcrossNumber.ToString(),
+                    f, b,
+                    e.CellBounds.Left + 33,
+                    e.CellBounds.Top + 2
             )
             End If
 
@@ -611,149 +882,6 @@ Public Class Form1
 
 #End Region
 
-#Region "NUMBER ASSIGNMENT"
-    Public Sub AssignNumbersToLetters() ' Assign random numbers to letters A-Z in the grid and populate letter grid with numbers.
-            Dim Letter As String = ""
-            Dim Number As Integer
-            Dim ch As Char
-            Dim rnd As New Random()
-            Dim r As Integer
-            Dim c As Integer
-            Dim i As Integer
-
-            'Generate a list of letters A-Z and assign each a random number 1-26
-            Dim Alphabet As String = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-            Dim combined As New List(Of LetterNumber)
-
-            Dim lst_letters As New List(Of Char)
-            For i = 0 To 25
-                ch = Alphabet(i)
-                lst_letters.Add(ch)
-            Next
-
-            Dim lst_Numbers As New List(Of Integer)
-            For i = 1 To 26
-                lst_Numbers.Add(i)
-            Next
-            ' Shuffle the numbers
-            lst_Numbers = lst_Numbers.OrderBy(Function(x) rnd.Next()).ToList()
-
-            'Combine the two lists
-            If lst_letters.Count <> lst_Numbers.Count Then
-                Throw New InvalidOperationException("Lists must be the same length")
-                Exit Sub
-            End If
-
-            For i = 0 To Math.Min(lst_letters.Count, lst_Numbers.Count) - 1
-                combined.Add(New LetterNumber With {
-        .Letter = lst_letters(i),
-        .Number = lst_Numbers(i)
-    })
-            Next
-
-            With DgvGrid
-                For r = 0 To GridSize - 1
-                    For c = 0 To GridSize - 1
-                        Dim v = .Rows(r).Cells(c).Value
-                        If v Is Nothing Then Continue For
-
-                        For Each item In combined
-                            If item.Letter = v Then
-                                Number = item.Number
-                                .Rows(r).Cells(c).Value = CStr(Number)
-                                Exit For
-                            End If
-                        Next
-                    Next
-                Next
-            End With
-
-            '===============Replace letters with numbers on the grid===========
-
-            Dim UsedNumbers As New List(Of Integer)
-            Dim hits As Integer = 0 ' count of letters placed
-            Dim rowIndex As Integer = 1
-            Dim iterations As Integer = GridSize * GridSize 'to prevent endless loops
-            Dim nrLoops As Integer = 0
-
-            If combined Is Nothing OrElse combined.Count = 0 Then Exit Sub
-            ' Shuffle the combined list
-            combined = combined.OrderBy(Function(x) rnd.Next()).ToList()
-
-            ' Clear Letters from LetterGrid()
-            With letterdg
-                For c = 0 To .ColumnCount - 1
-                    .Rows(1).Cells(c).Value = Nothing
-                    .Rows(3).Cells(c).Value = Nothing
-                Next
-            End With
-
-            i = 1
-            NrOfClues = Int(cmbNrClues.SelectedIndex)
-            Do Until hits = NrOfClues Or nrLoops = iterations
-                nrLoops += 1
-                'take an entry from combined list
-                Dim Clue As LetterNumber
-                Clue = combined(i)
-                Letter = Clue.Letter
-                Number = Clue.Number   ' 1–26
-
-                If UsedNumbers.Contains(Number) Then Continue Do ' skip duplicates
-                UsedNumbers.Add(Number)
-
-                'Confirm that the letter is used in the puzzle
-                Dim LetterUsed As Boolean = False
-
-                For r = 0 To GridSize - 1
-                    For c = 0 To GridSize - 1
-                        If Grid(r, c).ToString() = Letter Then
-                            LetterUsed = True
-                            If Number > 13 Then 'it goes in row 3
-                                rowIndex = 3
-                                letterdg.Rows(rowIndex).Cells(Number - 14).Value = Letter
-                            Else
-                                rowIndex = 1 ' it goes in row 1
-                                letterdg.Rows(rowIndex).Cells(Number - 1).Value = Letter
-                            End If
-                            hits += 1
-                            c = GridSize - 1 'force exit from inner loop
-                            r = GridSize - 1 'force exit from outer loop
-                        End If
-                    Next
-                Next
-
-                i += 1 'increment the index
-                If i >= 25 Then i = 0 ' reset to 0 if exceeding list size
-            Loop
-
-        End Sub
-
-    Function GenerateRandomNumber(n As Integer) ' Example of a random number generator function
-        Dim rnd As New Random()
-        Dim nums As New HashSet(Of Integer)
-        Dim counter As Integer = 0
-        While counter < n
-            nums.Add(rnd.Next(1, n))
-            counter += 1
-        End While
-        Dim result = nums.ToList()
-        Return result
-    End Function
-
-    Sub AssignClues(n As Integer)
-        ' This routine assigns the clues to the grid based on the random numbers generated for the crossword puzzle
-        Dim x As Integer = LstRnr.Count
-        For i = 0 To n - 1
-            Dim rnd As New Random()
-            Dim q As Integer = rnd.Next(1, x + 1)
-            Dim clue = lstClues(q)
-            clue.PlaceLetter = True
-        Next
-
-    End Sub
-
-#End Region
-
 #Region "Button Handlers"
     ' ===================== BUTTONS =====================
     Sub EditDictionary(sender As Object, e As EventArgs)
@@ -768,10 +896,10 @@ Public Class Form1
         End If
     End Sub
     Private Sub BtnNew_Click(sender As Object, e As EventArgs)
-            GeneratePuzzle()
-        End Sub
+        RestartApp(Puzzle)
+    End Sub
 
-        Private Sub BtnPrint_Click(sender As Object, e As EventArgs)
+    Private Sub BtnPrint_Click(sender As Object, e As EventArgs)
 
         Dim dlg As New PrintDialog With {.Document = pd}
         reorderClueList() ' Ensure clues are listed in ascending order on the grid
@@ -785,9 +913,9 @@ Public Class Form1
 
             If Puzzle = "xWord" Then
                 pd.DefaultPageSettings.Landscape = True
-                Dim Number As Integer = (lstClues.Count)
+                Dim Number As Integer = (lstClues.Count) - 1
                 LstRnr = GenerateRandomNumber(Number)
-                AssignClues(NrOfClues)
+                'AssignClues(NrOfClues)
             Else
                 pd.DefaultPageSettings.Landscape = False
             End If
@@ -832,17 +960,7 @@ Public Class Form1
 
         End Sub
 
-    Sub reorderClueList()
-        ' This routine ensures that the clues are listed in ascending order based on their position on the grid
-        Dim ClueNumber As Integer = 0
-        lstClues = lstClues.OrderBy(Function(c) c.Row).ThenBy(Function(c) c.Col).ToList()
 
-        For Each c In lstClues
-            ClueNumber += 1
-            c.ClueNumber = ClueNumber
-        Next
-
-    End Sub
     Sub PrintClueLists(e As PrintPageEventArgs)
         'This routine prints the clues pages. Not used in codeword puzzles
         If Puzzle <> "xWord" Then Return
