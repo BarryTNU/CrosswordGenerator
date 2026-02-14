@@ -398,6 +398,7 @@ Public Class Form1
 
     Sub GeneratePuzzle() ' This is the main puzzle generation routine
 
+
         ' Shuffle dictionary
         Dim shuffled = Dictionary.OrderBy(Function(x) rnd.Next()).ToList()
 
@@ -415,7 +416,6 @@ Public Class Form1
         RenderGrid()
 
     End Sub
-
 
     '===================== PLACEMENT LOGIC =====================
 
