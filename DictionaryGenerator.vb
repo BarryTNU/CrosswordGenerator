@@ -193,11 +193,6 @@ Public Class DictionaryGenerator
 
             If Word = "" Then Return False
 
-            If Word.Length < 3 OrElse Word.Length > 10 Then
-                MessageBox.Show("Word must be 3–10 letters (A–Z only).")
-                Return False
-            End If
-
             For Each item In lv_Dictionary.Items
                 If Word = item.ToString() Then
                     MessageBox.Show("Duplicate word.")
@@ -224,8 +219,8 @@ Public Class DictionaryGenerator
 
             If tb Is txt_NewWords Then
                 Word = txt_NewWords.Text.Trim().ToUpper()
-                If Len(Word) < 3 OrElse Len(Word) > 10 Then
-                    MessageBox.Show("Word must be 3–10 letters (A–Z only).")
+                If Len(Word) < 2 OrElse Len(Word) > 10 Then
+                    MessageBox.Show("Word must be 2–10 letters (A–Z only).")
                     txt_NewWords.Clear()
                     txt_NewWords.Focus()
                     Exit Sub
@@ -249,7 +244,7 @@ Public Class DictionaryGenerator
                     Exit Sub
                 End If
                 Dim item As New ListViewItem(Word)      ' Word Column 
-                item.SubItems.Add(Clue)       ' Clue Column 
+                item.SubItems.Add(Clue)                 ' Clue Column 
                 lv_Dictionary.Items.Insert(0, item) 'Add the word and clue to the first row in the list
                 WordList.Add(New ClueEntry With {.Word = Word, .Clue = Clue})
                 SaveDictionary(WordFilePath, WordList)
@@ -269,9 +264,6 @@ Public Class DictionaryGenerator
             txt_NewWords.Clear()
         ElseIf tb Is txt_NewClues Then
             txt_NewClues.Clear()
-            Dim WordLength As Integer = Len(Word)
-            txt_NewClues.Text = "(" & WordLength & ")" & " "
-            txt_NewClues.SelectionStart = txt_NewClues.TextLength + 1
         End If
     End Sub
 
