@@ -2,11 +2,16 @@
 Imports System.Drawing.Printing
 Imports System.Configuration
 Imports System.Diagnostics
+Imports System.Net.Http
+Imports System.Net
 
 Public Class Form1
 
     Public DefaultPath As String = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + Path.DirectorySeparatorChar + "Crosswords"
     Public WordFilePath As String = Path.Combine(DefaultPath, "WordList.csv")
+    Public PhraseFilePath As String = Path.Combine(DefaultPath, "PhraseList.csv")
+    Public DictFilePath As String = Path.Combine(DefaultPath, "Wordlist.csv")
+    Public ipAddress As String = "https://camsoft.au/cwg/PhraseList.csv"
 
 #Region "DATA STRUCTURES"
 
@@ -14,7 +19,7 @@ Public Class Form1
     Const GridSize As Integer = 15
     Dim Grid(GridSize - 1, GridSize - 1) As Char
     Dim lstClues As New List(Of Clue)
-    Dim Dictionary As New List(Of ClueEntry)
+    Dim Dictionary As New List(Of Clue)
     Dim WordLookup As New HashSet(Of String) ' For fast word existence checks
     Dim PuzzleNumber As Integer = 0
     Dim ClueNumbers(GridSize - 1, GridSize - 1) As Integer
@@ -27,11 +32,6 @@ Public Class Form1
         Public Clue As String
         Public ClueNumber As Integer
         Public PlaceLetter As Boolean = False ' Used in crossword puzzles to indicate whether the letter should be revealed on the grid (for codeword puzzles, all letters are hidden)
-    End Class
-
-    Public Class ClueEntry
-        Public Word As String
-        Public Clue As String
     End Class
 
     Public Enum DirectionType
@@ -68,7 +68,9 @@ Public Class Form1
     Private pnlClues As Panel
     Public letterdg As New DataGridView
     Private btnEditDict As New Button
-    Private btnPuzzle As New Button
+    Private WithEvents RbCrossword As New RadioButton
+    Private WithEvents RbPhrase As New RadioButton
+    Private WithEvents RbCodeword As New RadioButton
     Private lblNrClues As New Label
     Private cmbNrClues As New ComboBox
     Private NrOfClues As Integer = 3
@@ -93,65 +95,194 @@ Public Class Form1
 
     Private Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
 
-        Me.Text = "VB.NET Crossword"
-        Me.Size = New Size(850, 850)
-        Me.Location = New Point(100, 50)
+        Try
+            Me.Text = "VB.NET Crossword"
+            Me.Width = 1050
+            Me.Height = 870
 
-        If My.Application.CommandLineArgs.Count > 0 Then
-            Puzzle = My.Application.CommandLineArgs(0)
-        End If
+            Me.Location = New Point(100, 50)
 
-        ' Create directory for word list if it doesn't exist
-        If Not Directory.Exists(DefaultPath) Then
-            Directory.CreateDirectory(DefaultPath)
-        End If
+            If My.Application.CommandLineArgs.Count > 0 Then
+                Puzzle = My.Application.CommandLineArgs(0)
+            End If
 
-        'Check if there is a dictionary. If not, Create one from the included word list
-        If Not File.Exists(WordFilePath) Then
-            createDictionary() ' Ensure dictionary exists
-        End If
+            ' Create directory for word list if it doesn't exist
+            If Not Directory.Exists(DefaultPath) Then
+                Directory.CreateDirectory(DefaultPath)
+            End If
 
-        If Puzzle = "" Then Puzzle = "cWord" ' Default to codeword if not set
+            'Check if there is a dictionary. If not, Create one from the included word list
+            If Not File.Exists(DictFilePath) Then
+                createDictionary() ' Ensure dictionary exists
+            End If
 
-        'Puzzle = "cWord"
-        ' Puzzle = "xWord"
+            If Not File.Exists(PhraseFilePath) Then
+                DownloadPhraseList() ' Ensure phrase list exists
+            End If
 
-        LoadDictionary(WordFilePath)
+            If Puzzle = "" Then Puzzle = "cWord" ' Default to codeword if not set
 
-        SetupGrid()
-        InitGrid()
-        SetupUI()
-        If Puzzle = "cWord" Then
-            SetupLetterGrid()
-            SetupTextBox()
-        End If
-        GeneratePuzzle()
+            ' Puzzle = "cWord"
+            'Puzzle = "xWord"
+            'Puzzle = "pWord"
+
+            If Puzzle = "pWord" Then
+                DictFilePath = PhraseFilePath
+            Else
+                DictFilePath = WordFilePath
+            End If
+
+            LoadDictionary(DictFilePath)
+            'Me.Hide()
+            ' DictionaryGenerator.Show()
+
+            SetupGrid()
+            InitGrid()
+            SetupUI()
+            If Puzzle = "cWord" Then
+                SetupLetterGrid()
+                SetupTextBox()
+            End If
+            GeneratePuzzle()
+
+        Catch ex As Exception
+            MessageBox.Show("An error occurred during initialization: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
 
     End Sub
-
-    Private Sub RestartApp(puzzleType As String)
-
-        Dim exePath As String = Application.ExecutablePath
-        Dim psi As New ProcessStartInfo(exePath, puzzleType)
-        Process.Start(psi)
-        Application.Exit()
-    End Sub
-
 
 #End Region
 #Region "DICTIONARY"
     Sub LoadDictionary(path As String) ' Load the word list from CSV file
-
+        Dim line As String
+        Dim entry As String
+        Dim Word As String
+        Dim Clu As String
         Dictionary.Clear()
+        Try
 
-        For Each line In File.ReadAllLines(path).Skip(1)
-            Dim p = line.Split(","c, 2)
-            Dictionary.Add(New ClueEntry With {.Word = p(0).Trim().ToUpper(), .Clue = p(1).Trim().ToUpper()})
-        Next
+            Using sr As New StreamReader(path)
+                While Not sr.EndOfStream
+                    line = sr.ReadLine()
+                    Dim parts = line.Split(","c, 2)
+                    Dim w = parts(0).Trim().ToUpper()
+                    Clu = If(parts.Length > 1, parts(1).Trim(), "")
+                    Dictionary.Add(New Clue With {.Word = w, .Clue = Clu})
+                    'WordLookup.Add(w) ' store just the word for Contains checks
+                End While
+                sr.Close()
+            End Using
+            RandomiseDictionary(200) ' Load a random selection of 200 words from the dictionary for puzzle generation. This helps ensure variety in the generated puzzles and can improve performance by working with a smaller set of words during placement.
+        Catch ex As Exception
+            MessageBox.Show("Failed to load dictionary: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
+    End Sub
 
-        For Each entry In Dictionary
-            WordLookup.Add(entry.Word.ToUpper())
-        Next
+    Sub RandomiseDictionary(count As Integer)
+        Dim selected As New List(Of Clue)
+        Dim rnd As New Random()
+        Dim usedIndexes As New HashSet(Of Integer)
+        Dim i As Integer = 0
+
+        Try
+            While selected.Count < 100 And i < count * 10 ' Add a safety limit to prevent infinite loops
+                Dim index = rnd.Next(Dictionary.Count)
+                If Not usedIndexes.Contains(index) Then
+                    usedIndexes.Add(index)
+                    selected.Add(Dictionary(index))
+                End If
+                i += 1
+            End While
+            If i >= count * 10 Then
+                MsgBox("Selected " & selected.Count.ToString() & " unique words out of requested " & count.ToString() & ". Consider increasing the word list or reducing the requested count.", MessageBoxButtons.OK, "Warning")
+                Dim response = MsgBox("Do you want to reload the dictionary?", MessageBoxButtons.YesNo, "Reload Dictionary")
+                If response = DialogResult.Yes Then
+                    DownloadPhraseList() ' Get a new Phrase List from Camsoft.au
+                    LoadDictionary(DictFilePath) ' Reload the dictionary and try again
+                    Return
+                End If
+            End If
+
+            'selected = Dictionary.OrderBy(Function(x) rnd.Next()).Take(count).ToList()
+            Dictionary = selected.OrderByDescending(Function(x) x.Word.Length).ToList() ' Sort by length for better puzzle generation
+
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while randomizing the dictionary: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
+
+    End Sub
+
+#End Region
+
+#Region "DOWNLOAD PHRASE LIST FROM CAMSOFT.AU"
+    ' Downloads the list of phrases from Camsoft.au website.
+    'Should ony run once, and the file will be saved locally for future use. This is to ensure we have a rich list of phrases without having to include them all in the installer, which would make it very large. The word list is small, so it's included in the installer
+    Sub DownloadPhraseList()
+
+        Try
+            Using client As New WebClient()
+                client.DownloadFile(ipAddress, PhraseFilePath)
+            End Using
+
+            Dim DictList As New List(Of Clue)
+
+            Using sr As New StreamReader(PhraseFilePath)
+                While Not sr.EndOfStream
+                    Dim line As String = sr.ReadLine()
+                    Dim parts As String() = line.Split(","c)
+                    If parts.Length >= 2 Then
+                        Dim entry As New Clue With {
+                            .Word = parts(0).Trim(),
+                            .Clue = "Auto generated Clue" 'parts(1).Trim()
+                        }
+                        If Len(entry.Word) <= GridSize AndAlso Len(entry.Word) > 4 Then
+                            DictList.Add(entry)
+                        End If
+                    End If
+                End While
+            End Using
+
+            ShuffleDictList(DictList)
+            Dim selected1000 As List(Of Clue) = DictList.Take(1000).ToList()
+
+            SaveDictionary(PhraseFilePath, selected1000)
+
+        Catch ex As Exception
+            MsgBox("Failed to Load Phrase List from Camsoft.au")
+        End Try
+    End Sub
+    Private Sub ShuffleDictList(list As List(Of Clue))
+
+        Dim rnd As New Random()
+        Try
+            For i As Integer = list.Count - 1 To 1 Step -1
+                Dim j As Integer = rnd.Next(i + 1)
+
+                Dim temp = list(i)
+                list(i) = list(j)
+                list(j) = temp
+            Next
+
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while shuffling the dictionary: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
+
+    End Sub
+
+
+    Private Sub SaveDictionary(filepath As String, wlist As List(Of Clue))
+        Try
+            Using writer As New StreamWriter(filepath, False)
+                writer.WriteLine("Word,Clue")
+                For Each entry In wlist
+                    writer.WriteLine($"{entry.Word},{entry.Clue}")
+                Next
+                writer.Close()
+            End Using
+        Catch ex As Exception
+            MessageBox.Show("Failed to save Dictionary.")
+        End Try
+
     End Sub
 
 #End Region
@@ -159,161 +290,183 @@ Public Class Form1
 #Region "GRID SETUP"
 
     Private Sub SetupGrid()
+        Try
 
-        ' ---------- Grid panel ----------
-        pnlGrid = New Panel With {
+            ' ---------- Grid panel ----------
+            pnlGrid = New Panel With {
         .Dock = DockStyle.Left,
-        .Width = 755
-    }
+        .Width = 756}
 
-        ' ---------- DataGridView ----------
-        DgvGrid = New DataGridView With {
-        .Name = "dgvGrid",
-        .Dock = DockStyle.Fill,
-        .AllowUserToAddRows = False,
-        .AllowUserToResizeColumns = False,
-        .AllowUserToResizeRows = False,
-        .RowHeadersVisible = False,
-        .ColumnHeadersVisible = False,
-        .ScrollBars = ScrollBars.None,
-        .Font = New Font("Segoe UI", 14, FontStyle.Bold)
-    }
+            ' ---------- DataGridView ----------
+            DgvGrid = New DataGridView With {
+            .Name = "dgvGrid",
+            .Dock = DockStyle.Fill,
+            .AllowUserToAddRows = False,
+            .AllowUserToResizeColumns = False,
+            .AllowUserToResizeRows = False,
+            .RowHeadersVisible = False,
+            .ColumnHeadersVisible = False,
+            .ScrollBars = ScrollBars.None,
+            .Font = New Font("Segoe UI", 14, FontStyle.Bold)
+        }
 
-        ' ---------- Columns ----------
-        DgvGrid.Columns.Clear()
-        For i = 0 To GridSize - 1
-            DgvGrid.Columns.Add($"C{i}", "")
-            DgvGrid.Columns(i).Width = 50
-        Next
-
-        ' ---------- Rows ----------
-        DgvGrid.RowCount = GridSize
-        For Each r As DataGridViewRow In DgvGrid.Rows
-            r.Height = 50
-        Next
-
-        ' ---------- Assemble ----------
-        pnlGrid.Controls.Add(DgvGrid)
-        Me.Controls.Add(pnlGrid)
-
-        ReDim cD(GridSize - 1, GridSize - 1)
-
-        '---------- Initialize CellData array ----------
-        For r = 0 To GridSize - 1
-            For c = 0 To GridSize - 1
-                cD(r, c) = New CellData With {
-                    .Letter = "",
-                    .AcrossNumber = 0,
-                    .DownNumber = 0
-                }
+            ' ---------- Columns ----------
+            DgvGrid.Columns.Clear()
+            For i = 0 To GridSize - 1
+                DgvGrid.Columns.Add($"C{i}", "")
+                DgvGrid.Columns(i).Width = 50
             Next
-        Next
+
+            ' ---------- Rows ----------
+            DgvGrid.RowCount = GridSize
+            For Each r As DataGridViewRow In DgvGrid.Rows
+                r.Height = 49
+            Next
+
+            ' ---------- Assemble ----------
+            pnlGrid.Controls.Add(DgvGrid)
+            Me.Controls.Add(pnlGrid)
+
+            ReDim cD(GridSize - 1, GridSize - 1)
+
+            '---------- Initialize CellData array ----------
+            For r = 0 To GridSize - 1
+                For c = 0 To GridSize - 1
+                    cD(r, c) = New CellData With {
+                        .Letter = "",
+                        .AcrossNumber = 0,
+                        .DownNumber = 0
+                    }
+                Next
+            Next
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while setting up the grid: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
 
     End Sub
 
 
     Private Sub SetupUI()
 
-        ' ---------- Bottom panel ----------
-        pnlBottom = New Panel With {
+        Try
+            ' ---------- Bottom panel ----------
+            pnlBottom = New Panel With {
         .Dock = DockStyle.Bottom,
-        .Height = 70
-    }
+        .Width = Me.ClientSize.Width,
+        .Height = 90}
 
-        ' ---------- Edit Dictionary ----------
-        btnEditDict.Font = New Font("Segoe UI", 12, FontStyle.Bold)
-        btnEditDict.Text = "Edit Dictionary"
-        btnEditDict.AutoSize = True
-        btnEditDict.Location = New Point(10, 20)
+            ' ---------- Edit Dictionary ----------
+            btnEditDict.Font = New Font("Segoe UI", 12, FontStyle.Bold)
+            btnEditDict.Text = "Edit Dictionary"
+            btnEditDict.AutoSize = True
+            btnEditDict.Location = New Point(10, 20)
 
-        '----------Puzzle type label----------
-        btnPuzzle.Font = New Font("Segoe UI", 12, FontStyle.Bold)
+            '----------Puzzle type label----------
+            RbPhrase.Font = New Font("Segoe UI", 10, FontStyle.Bold)
+            RbPhrase.Text = "PhraseWord"
+            RbPhrase.AutoSize = True
+            RbPhrase.Location = New Point(200, 10)
 
-        btnPuzzle.Text = "CodeWord"
-        btnPuzzle.AutoSize = True
-        btnPuzzle.Location = New Point(160, 20)
-        pnlBottom.Controls.Add(btnPuzzle)
-        If Puzzle = "cWord" Then btnPuzzle.Text = "Crossword"
-        If Puzzle = "xWord" Then btnPuzzle.Text = "CodeWord"
+            RbCodeword.Font = New Font("Segoe UI", 10, FontStyle.Bold)
+            RbCodeword.Text = "CodeWord"
+            RbCodeword.AutoSize = True
+            RbCodeword.Location = New Point(200, 30)
+
+            RbCrossword.Font = New Font("Segoe UI", 10, FontStyle.Bold)
+            RbCrossword.Text = "CrossWord"
+            RbCrossword.AutoSize = True
+            RbCrossword.Location = New Point(200, 50)
+
+            If Puzzle = "cWord" Then RbCodeword.Text = "CodeWord"
+            If Puzzle = "pWord" Then RbPhrase.Text = "PhraseWord"
+            If Puzzle = "xWord" Then RbCrossword.Text = "CrossWord"
 
 
-        ' ---------- Number of clues ----------
-        lblNrClues.Font = New Font("Segoe UI", 12, FontStyle.Bold)
-        lblNrClues.Text = "Number of Clues:"
-        lblNrClues.AutoSize = True
-        lblNrClues.Location = New Point(300, 25)
+            ' ---------- Number of clues ----------
+            lblNrClues.Font = New Font("Segoe UI", 12, FontStyle.Bold)
+            lblNrClues.Text = "Number of Clues:"
+            lblNrClues.AutoSize = True
+            lblNrClues.Location = New Point(330, 25)
 
-        cmbNrClues.Font = New Font("Segoe UI", 12, FontStyle.Bold)
-        cmbNrClues.Items.AddRange({"0", "1", "2", "3", "4", "5"})
-        cmbNrClues.SelectedIndex = 3
-        cmbNrClues.DropDownStyle = ComboBoxStyle.DropDownList
-        cmbNrClues.Width = 60
-        cmbNrClues.Location = New Point(460, 22)
+            cmbNrClues.Font = New Font("Segoe UI", 12, FontStyle.Bold)
+            cmbNrClues.Items.AddRange({"0", "1", "2", "3", "4", "5"})
+            cmbNrClues.SelectedIndex = 3
+            cmbNrClues.DropDownStyle = ComboBoxStyle.DropDownList
+            cmbNrClues.Width = 60
+            cmbNrClues.Location = New Point(480, 22)
 
-        ' ---------- New button ----------
-        btnNew.Font = New Font("Segoe UI", 12, FontStyle.Bold)
-        btnNew.Text = "New"
-        btnNew.Size = New Size(90, 32)
-        btnNew.Location = New Point(550, 20)
+            ' ---------- New button ----------
+            btnNew.Font = New Font("Segoe UI", 12, FontStyle.Bold)
+            btnNew.Text = "New"
+            btnNew.Size = New Size(90, 32)
+            btnNew.Location = New Point(550, 20)
 
-        ' ---------- Print button ----------
-        btnPrint.Font = New Font("Segoe UI", 12, FontStyle.Bold)
-        btnPrint.Text = "Print"
-        btnPrint.Size = New Size(90, 32)
-        btnPrint.Location = New Point(650, 20)
+            ' ---------- Print button ----------
+            btnPrint.Font = New Font("Segoe UI", 12, FontStyle.Bold)
+            btnPrint.Text = "Print"
+            btnPrint.Size = New Size(90, 32)
+            btnPrint.Location = New Point(650, 20)
 
-        ' ---------- Add to bottom panel ----------
-        pnlBottom.Controls.AddRange({
-        btnEditDict,
-        lblNrClues,
-        cmbNrClues,
-        btnNew,
-        btnPrint
-    })
+            ' ---------- Add to bottom panel ----------
+            Me.Controls.Add(pnlBottom)
+            pnlBottom.Controls.AddRange({
+            btnEditDict,
+            RbPhrase,
+            RbCrossword,
+            RbCodeword,
+            lblNrClues,
+            cmbNrClues,
+            btnNew,
+            btnPrint})
 
-        Me.Controls.Add(pnlBottom)
+            ' ---------- Crossword clue panels ----------
+            If Puzzle = "xWord" OrElse Puzzle = "pWord" Then
 
-        ' ---------- Crossword clue panels ----------
-        If Puzzle = "xWord" Then
+                pnlClues = New Panel With {
+                .Dock = DockStyle.Right,
+                .Width = 260,
+                .Height = 400
+            }
 
-            pnlClues = New Panel With {
-            .Dock = DockStyle.Right,
-            .Width = 260,
-            .Height = 400
-        }
+                lstAcross.Font = New Font("Segoe UI", 10)
+                lstAcross.Dock = DockStyle.Top
+                lstAcross.Width = pnlClues.Width
+                lstAcross.ScrollAlwaysVisible = False
 
-            lstAcross.Font = New Font("Segoe UI", 10)
-            lstAcross.Dock = DockStyle.Top
-            lstAcross.Width = pnlClues.Width
-            lstAcross.ScrollAlwaysVisible = False
+                lstDown.Font = New Font("Segoe UI", 10)
+                lstDown.Width = pnlClues.Width
+                lstDown.ScrollAlwaysVisible = False
+                lstDown.Location = New Point(0, pnlClues.Height \ 2)
 
-            lstDown.Font = New Font("Segoe UI", 10)
-            lstDown.Width = pnlClues.Width
-            lstDown.ScrollAlwaysVisible = False
-            lstDown.Location = New Point(0, pnlClues.Height \ 2)
+                pnlClues.Controls.Add(lstDown)
+                pnlClues.Controls.Add(lstAcross)
+                Me.Controls.Add(pnlClues)
 
-            pnlClues.Controls.Add(lstDown)
-            pnlClues.Controls.Add(lstAcross)
-            Me.Controls.Add(pnlClues)
+                Me.Width = 1050
+            Else
+                Me.Width = 760
+            End If
 
-            Me.Width = 1050
-        Else
-            Me.Width = 760
-        End If
+            ' ---------- Handlers ----------
+            AddHandler btnNew.Click, AddressOf BtnNew_Click
+            AddHandler btnPrint.Click, AddressOf BtnPrint_Click
+            AddHandler btnEditDict.Click, AddressOf EditDictionary
+            AddHandler RbCodeword.Click, AddressOf RadioButton_CheckedChanged
+            AddHandler RbPhrase.Click, AddressOf RadioButton_CheckedChanged
+            AddHandler RbCrossword.Click, AddressOf RadioButton_CheckedChanged
+            AddHandler cmbNrClues.SelectedIndexChanged, AddressOf cmbNrClues_IndexChanged
+            AddHandler DgvGrid.CellPainting, AddressOf dgvGrid_CellPainting
 
-        ' ---------- Handlers ----------
-        AddHandler btnNew.Click, AddressOf BtnNew_Click
-        AddHandler btnPrint.Click, AddressOf BtnPrint_Click
-        AddHandler btnEditDict.Click, AddressOf EditDictionary
-        AddHandler btnPuzzle.Click, AddressOf btnPuzzle_Click
-        AddHandler cmbNrClues.SelectedIndexChanged, AddressOf cmbNrClues_IndexChanged
-        AddHandler DgvGrid.CellPainting, AddressOf dgvGrid_CellPainting
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while setting up the UI: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
 
     End Sub
 
 
     Sub SetupLetterGrid() ' Setup the letter-number mapping grid
 
+        Try
             letterdg = New DataGridView With {
             .Name = "letterdg",
             .Dock = DockStyle.Bottom,
@@ -345,10 +498,15 @@ Public Class Form1
 
             letterdg.Visible = False ' Hide the grid on the screen. Only need it on the printed version
 
-        End Sub
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while setting up the letter grid: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
+
+    End Sub
 
     Sub SetupTextBox() ' Setup the alphabet textbox
-        txt_Alphabet = New TextBox With {
+        Try
+            txt_Alphabet = New TextBox With {
             .Multiline = False,
             .Width = 500,
             .Height = 50,
@@ -356,39 +514,45 @@ Public Class Form1
             .Location = New Point(300, 850),
             .ScrollBars = ScrollBars.Vertical
         }
-
-        txt_Alphabet.ReadOnly = True
-        txt_Alphabet.Text = "A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z"
-        Me.Controls.Add(txt_Alphabet)
+            txt_Alphabet.ReadOnly = True
+            txt_Alphabet.Text = "A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z"
+            Me.Controls.Add(txt_Alphabet)
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while setting up the alphabet textbox: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
     End Sub
     Sub InitGrid() ' Initialize the grid and UI for a new puzzle
-        PuzzleNumber = rnd.Next(1, 1000)
-        Me.Text = "VB.NET Codeword" & " - Puzzle #" & PuzzleNumber.ToString()
+        Try
+            PuzzleNumber = rnd.Next(1, 1000)
+            Me.Text = "VB.NET Codeword" & " - Puzzle #" & PuzzleNumber.ToString()
 
-        lstClues.Clear()
-        lstAcross.Items.Clear()
-        lstAcross.Items.Add("Across Clues:")
-        lstDown.Items.Clear()
-        lstDown.Items.Add("Down Clues:")
+            lstClues.Clear()
+            lstAcross.Items.Clear()
+            lstAcross.Items.Add("Across Clues:")
+            lstDown.Items.Clear()
+            lstDown.Items.Add("Down Clues:")
 
 
-        For r = 0 To GridSize - 1
-            For c = 0 To GridSize - 1
-                Grid(r, c) = EMPTY
+            For r = 0 To GridSize - 1
+                For c = 0 To GridSize - 1
+                    Grid(r, c) = EMPTY
+                Next
             Next
-        Next
 
-        For Each col As DataGridViewColumn In DgvGrid.Columns
-            col.Width = 50
-        Next
-
-        For Each row As DataGridViewRow In DgvGrid.Rows
-            For Each cell As DataGridViewCell In row.Cells
-                cell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter
+            For Each col As DataGridViewColumn In DgvGrid.Columns
+                col.Width = 50
             Next
-        Next
-        lstClues.Clear()
-        PlacedWords.Clear()
+
+            For Each row As DataGridViewRow In DgvGrid.Rows
+                For Each cell As DataGridViewCell In row.Cells
+                    cell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter
+                Next
+            Next
+            lstClues.Clear()
+            PlacedWords.Clear()
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while initializing the grid: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
     End Sub
 
 
@@ -397,238 +561,286 @@ Public Class Form1
 #Region "CROSSWORD ENGINE"
 
     Sub GeneratePuzzle() ' This is the main puzzle generation routine
+        Try
 
+            If Dictionary.Count = 0 Then
+                MessageBox.Show("Dictionary is empty. Check the word list file.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+                Return
+            End If
 
-        ' Shuffle dictionary
-        Dim shuffled = Dictionary.OrderBy(Function(x) rnd.Next()).ToList()
+            Dim shuffled = Dictionary.OrderBy(Function(x) rnd.Next()).ToList()
+            Dim Words = shuffled.Take(60).OrderByDescending(Function(x) x.Word.Length).ToList()
+            If Words.Count = 0 Then Return
 
-        ' Take 60, then sort those by length
-        Dim Words = shuffled.Take(60).OrderByDescending(Function(x) x.Word.Length).ToList()
+            ' Place longest of the random set in the middle of the grid, horizontally
+            PlaceWord(Words(0), GridSize \ 2, (GridSize - Words(0).Word.Length) \ 2, DirectionType.Across)
+            ' Place remaining words
+            For i = 1 To Words.Count - 1
+                If WordUsed(Words(i).Word) Then Continue For
+                TryPlaceWord(Words(i))
+            Next
 
-        ' Place longest of the random set in the middle of the grid, horizontally
-        PlaceWord(Words(0), GridSize \ 2, (GridSize - Words(0).Word.Length) \ 2, DirectionType.Across)
-        ' Place remaining words
-        For i = 1 To Words.Count - 1
-            If WordUsed(Words(i).Word) Then Continue For
-            TryPlaceWord(Words(i))
-        Next
+            RenderGrid()
 
-        RenderGrid()
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while generating the puzzle: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
 
     End Sub
 
     '===================== PLACEMENT LOGIC =====================
 
-    Function TryPlaceWord(entry As ClueEntry) As Boolean
-        Dim word = entry.Word.ToUpper()
+    ' Function TryPlaceWord(entry As ClueEntry) As Boolean
+    Function TryPlaceWord(entry As Clue) As Boolean
+        Try
 
-        For r = 0 To GridSize - 1
-            For c = 0 To GridSize - 1
+            Dim word = entry.Word.ToUpper()
 
-                ' Try ACROSS
-                For i = 0 To word.Length - 1
-                    If Grid(r, c) = word(i) Or Grid(r, c) = EMPTY Then
-                        Dim startCol = c - i
-                        If startCol >= 0 AndAlso CanPlace(word, r, startCol, DirectionType.Across) Then
-                            PlaceWord(entry, r, startCol, DirectionType.Across)
-                            Return True
+            For r = 0 To GridSize - 1
+                For c = 0 To GridSize - 1
+
+                    ' Try ACROSS
+                    For i = 0 To word.Length - 1
+                        If Grid(r, c) = word(i) Or Grid(r, c) = EMPTY Then
+                            Dim startCol = c - i
+                            If startCol >= 0 AndAlso CanPlace(word, r, startCol, DirectionType.Across) Then
+                                PlaceWord(entry, r, startCol, DirectionType.Across)
+                                Return True
+                            End If
                         End If
-                    End If
-                Next
+                    Next
 
-                ' Try DOWN
-                For i = 0 To word.Length - 1
-                    If Grid(r, c) = word(i) Or Grid(r, c) = EMPTY Then
-                        Dim startRow = r - i
-                        If startRow >= 0 AndAlso CanPlace(word, startRow, c, DirectionType.Down) Then
-                            PlaceWord(entry, startRow, c, DirectionType.Down)
-                            Return True
+                    ' Try DOWN
+                    For i = 0 To word.Length - 1
+                        If Grid(r, c) = word(i) Or Grid(r, c) = EMPTY Then
+                            Dim startRow = r - i
+                            If startRow >= 0 AndAlso CanPlace(word, startRow, c, DirectionType.Down) Then
+                                PlaceWord(entry, startRow, c, DirectionType.Down)
+                                Return True
+                            End If
                         End If
-                    End If
-                Next
+                    Next
 
+                Next
             Next
-        Next
 
-        Return False
+            Return False
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while trying to place a word: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            Return False
+        End Try
+
     End Function
 
     Function CanPlace(word As String, row As Integer, col As Integer, dir As DirectionType) As Boolean
 
-        If dir = DirectionType.Across Then
+        Try
+            If dir = DirectionType.Across Then
 
-            ' --- Bounds ---
-            If col < 0 OrElse col + word.Length > GridSize Then Return False
+                ' --- Bounds ---
+                If col < 0 OrElse col + word.Length > GridSize Then Return False
 
-            ' --- Cell before start ---
-            If col > 0 AndAlso Grid(row, col - 1) <> EMPTY Then Return False
+                ' --- Cell before start ---
+                If col > 0 AndAlso Grid(row, col - 1) <> EMPTY Then Return False
 
-            ' --- Cell after end ---
-            If col + word.Length < GridSize AndAlso
-           Grid(row, col + word.Length) <> EMPTY Then Return False
+                ' --- Cell after end ---
+                If col + word.Length < GridSize AndAlso
+               Grid(row, col + word.Length) <> EMPTY Then Return False
 
-            For i As Integer = 0 To word.Length - 1
+                For i As Integer = 0 To word.Length - 1
 
-                Dim r = row
-                Dim c = col + i
-                Dim gridChar = Grid(r, c)
-                Dim letter = word(i)
+                    Dim r = row
+                    Dim c = col + i
+                    Dim gridChar = Grid(r, c)
+                    Dim letter = word(i)
 
-                ' --- Letter compatibility ---
-                If gridChar <> EMPTY AndAlso gridChar <> letter Then
-                    Return False
-                End If
-
-                ' --- If NOT crossing, validate vertical fragment ---
-                If gridChar = EMPTY Then
-                    If CreatesInvalidVerticalWord(r, c, letter) Then
+                    ' --- Letter compatibility ---
+                    If gridChar <> EMPTY AndAlso gridChar <> letter Then
                         Return False
                     End If
-                End If
 
-            Next
+                    ' --- If NOT crossing, validate vertical fragment ---
+                    If gridChar = EMPTY Then
+                        If CreatesInvalidVerticalWord(r, c, letter) Then
+                            Return False
+                        End If
+                    End If
 
-        Else ' DOWN
+                Next
 
-            ' --- Bounds ---
-            If row < 0 OrElse row + word.Length > GridSize Then Return False
+            Else ' DOWN
 
-            ' --- Cell before start ---
-            If row > 0 AndAlso Grid(row - 1, col) <> EMPTY Then Return False
+                ' --- Bounds ---
+                If row < 0 OrElse row + word.Length > GridSize Then Return False
 
-            ' --- Cell after end ---
-            If row + word.Length < GridSize AndAlso
-           Grid(row + word.Length, col) <> EMPTY Then Return False
+                ' --- Cell before start ---
+                If row > 0 AndAlso Grid(row - 1, col) <> EMPTY Then Return False
 
-            For i As Integer = 0 To word.Length - 1
+                ' --- Cell after end ---
+                If row + word.Length < GridSize AndAlso
+               Grid(row + word.Length, col) <> EMPTY Then Return False
 
-                Dim r = row + i
-                Dim c = col
-                Dim gridChar = Grid(r, c)
-                Dim letter = word(i)
+                For i As Integer = 0 To word.Length - 1
 
-                ' --- Letter compatibility ---
-                If gridChar <> EMPTY AndAlso gridChar <> letter Then
-                    Return False
-                End If
+                    Dim r = row + i
+                    Dim c = col
+                    Dim gridChar = Grid(r, c)
+                    Dim letter = word(i)
 
-                ' --- If NOT crossing, validate horizontal fragment ---
-                If gridChar = EMPTY Then
-                    If CreatesInvalidHorizontalWord(r, c, letter) Then
+                    ' --- Letter compatibility ---
+                    If gridChar <> EMPTY AndAlso gridChar <> letter Then
                         Return False
                     End If
-                End If
 
-            Next
+                    ' --- If NOT crossing, validate horizontal fragment ---
+                    If gridChar = EMPTY Then
+                        If CreatesInvalidHorizontalWord(r, c, letter) Then
+                            Return False
+                        End If
+                    End If
 
-        End If
+                Next
 
-        Return True
+            End If
+
+            Return True
+
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while checking if a word can be placed: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            Return False
+        End Try
 
     End Function
 
     Function CreatesInvalidVerticalWord(row As Integer,
                                     col As Integer,
                                     newLetter As Char) As Boolean
+        Try
+            Dim r = row
+            Dim word As String = ""
 
-        Dim r = row
-        Dim word As String = ""
+            ' Move up
+            While r > 0 AndAlso Grid(r - 1, col) <> EMPTY
+                r -= 1
+            End While
 
-        ' Move up
-        While r > 0 AndAlso Grid(r - 1, col) <> EMPTY
-            r -= 1
-        End While
+            ' Build downward
+            Dim tempRow = r
 
-        ' Build downward
-        Dim tempRow = r
+            While tempRow < GridSize AndAlso
+              (Grid(tempRow, col) <> EMPTY OrElse tempRow = row)
 
-        While tempRow < GridSize AndAlso
-          (Grid(tempRow, col) <> EMPTY OrElse tempRow = row)
+                If tempRow = row Then
+                    word &= newLetter
+                Else
+                    word &= Grid(tempRow, col)
+                End If
+                tempRow += 1
+            End While
 
-            If tempRow = row Then
-                word &= newLetter
-            Else
-                word &= Grid(tempRow, col)
+            If word.Length > 1 AndAlso Not WordLookup.Contains(word) Then
+                Return True
             End If
-            tempRow += 1
-        End While
 
-        If word.Length > 1 AndAlso Not WordLookup.Contains(word) Then
-            Return True
-        End If
-
-        Return False
+            Return False
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while checking vertical word validity: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            Return True ' Return true to prevent placement if there's an error
+        End Try
 
     End Function
 
     Function CreatesInvalidHorizontalWord(row As Integer, col As Integer, newLetter As Char) As Boolean
+        Try
+            Dim c = col
+            Dim word As String = ""
 
-        Dim c = col
-        Dim word As String = ""
+            ' Move left
+            While c > 0 AndAlso Grid(row, c - 1) <> EMPTY
+                c -= 1
+            End While
 
-        ' Move left
-        While c > 0 AndAlso Grid(row, c - 1) <> EMPTY
-            c -= 1
-        End While
+            ' Build rightward
+            Dim tempCol = c
 
-        ' Build rightward
-        Dim tempCol = c
+            While tempCol < 15 AndAlso' Width AndAlso
+              (Grid(row, tempCol) <> EMPTY OrElse tempCol = col)
 
-        While tempCol < 15 AndAlso' Width AndAlso
-          (Grid(row, tempCol) <> EMPTY OrElse tempCol = col)
+                If tempCol = col Then
+                    word &= newLetter
+                Else
+                    word &= Grid(row, tempCol)
+                End If
 
-            If tempCol = col Then
-                word &= newLetter
-            Else
-                word &= Grid(row, tempCol)
+                tempCol += 1
+            End While
+
+            If word.Length > 1 AndAlso Not WordLookup.Contains(word) Then
+                Return True
             End If
 
-            tempCol += 1
-        End While
+            Return False
 
-        If word.Length > 1 AndAlso Not WordLookup.Contains(word) Then
-            Return True
-        End If
-
-        Return False
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while checking horizontal word validity: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            Return True ' Return true to prevent placement if there's an error
+        End Try
 
     End Function
 
 
     Function WordUsed(Word As String) 'Check if word has already been placed
-        For Each item In PlacedWords
-            If Word = item.ToString() Then 'word has been used,
-                Return True
-            End If
-        Next
-        Return False
+        Try
+            For Each item In PlacedWords
+                If Word = item.ToString() Then 'word has been used,
+                    Return True
+                End If
+            Next
+            Return False
+
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while checking if a word has already been used: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            Return True ' Return true to prevent placement if there's an error
+        End Try
     End Function
 
     '============== END OF PLACEMENT LOGIC ==============
 
     '============== PLACEMENT ==============
-    Sub PlaceWord(entry As ClueEntry, row As Integer, col As Integer, dir As DirectionType)
+    'Sub PlaceWord(entry As ClueEntry, row As Integer, col As Integer, dir As    DirectionType)
+    Sub PlaceWord(entry As Clue, row As Integer, col As Integer, dir As DirectionType)
+
+
         Dim word = entry.Word.ToUpper()
         Dim NrOfLetters As String = word.Length.ToString()
         NrOfLetters = " (" & NrOfLetters & ") "
 
-        If dir = DirectionType.Across Then
-            For i = 0 To word.Length - 1
-                Grid(row, col + i) = word(i)
-            Next
-        Else ' DOWN
-            For i = 0 To word.Length - 1
-                Grid(row + i, col) = word(i)
-            Next
-        End If
-
-        If Puzzle = "xWord" Then
+        Try
             If dir = DirectionType.Across Then
-                lstClues.Add(New Clue With {.Word = word, .Row = row, .Col = col, .IsAcross = True, .Clue = entry.Clue})
-            Else
-                lstClues.Add(New Clue With {.Word = word, .Row = row, .Col = col, .IsAcross = False, .Clue = entry.Clue})
+                For i = 0 To word.Length - 1
+                    Grid(row, col + i) = word(i)
+                Next
+            Else ' DOWN
+                For i = 0 To word.Length - 1
+                    Grid(row + i, col) = word(i)
+                Next
             End If
-        End If
+
+            If Puzzle = "xWord" OrElse Puzzle = "pWord" Then
+                If dir = DirectionType.Across Then
+                    lstClues.Add(New Clue With {.Word = word, .Row = row, .Col = col, .IsAcross = True, .Clue = entry.Clue})
+                    PlacedWords.Add(word)
+                Else
+                    lstClues.Add(New Clue With {.Word = word, .Row = row, .Col = col, .IsAcross = False, .Clue = entry.Clue})
+                    PlacedWords.Add(word)
+                End If
+            End If
+
+            Dim ex As Exception
+
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while placing a word: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
 
     End Sub
 
@@ -659,7 +871,7 @@ Public Class Form1
             Next
         Next
 
-        If Puzzle = "xWord" Then
+        If Puzzle = "xWord" OrElse Puzzle = "pWord" Then
             Dim ClueNumber As Integer = 0
             reorderClueList() ' Ensure clues are in ascending order based on their position on the grid before assigning numbers
             For i = 0 To lstClues.Count - 1
@@ -680,7 +892,7 @@ Public Class Form1
             Next
 
             AddCluesToList()
-        Else
+        Else 'Puzzle is codeword, so we need to assign random numbers to letters and populate the letter grid
             AssignNumbersToLetters()
         End If
 
@@ -846,37 +1058,41 @@ Public Class Form1
     '==================== CELL PAINTING FOR CLUE NUMBERS ====================
 #Region "Cell Painting"
     Private Sub dgvGrid_CellPainting(sender As Object, e As DataGridViewCellPaintingEventArgs)
+        Try
+            If e.RowIndex < 0 OrElse e.ColumnIndex < 0 Then Return
+            Dim Row = e.RowIndex
+            Dim Col = e.ColumnIndex
+            ' Let grid paint background & borders
+            e.Paint(e.CellBounds, DataGridViewPaintParts.All)
 
-        If e.RowIndex < 0 OrElse e.ColumnIndex < 0 Then Return
-        Dim Row = e.RowIndex
-        Dim Col = e.ColumnIndex
-        ' Let grid paint background & borders
-        e.Paint(e.CellBounds, DataGridViewPaintParts.All)
+            Using f As New Font("Segoe UI", 7, FontStyle.Regular), b As New SolidBrush(Color.Black)
 
-        Using f As New Font("Segoe UI", 7, FontStyle.Regular), b As New SolidBrush(Color.Black)
+                ' Across number (top-right)
+                If cD(Row, Col).AcrossNumber > 0 Then
+                    e.Graphics.DrawString(
+                        cD(Row, Col).AcrossNumber.ToString(),
+                        f, b,
+                        e.CellBounds.Left + 33,
+                        e.CellBounds.Top + 2
+                )
+                End If
 
-            ' Across number (top-right)
-            If cD(Row, Col).AcrossNumber > 0 Then
-                e.Graphics.DrawString(
-                    cD(Row, Col).AcrossNumber.ToString(),
+                ' Down number (bottom-left)
+                If cD(Row, Col).DownNumber > 0 Then
+                    e.Graphics.DrawString(
+                    cD(Row, Col).DownNumber.ToString(),
                     f, b,
-                    e.CellBounds.Left + 33,
-                    e.CellBounds.Top + 2
-            )
-            End If
+                    e.CellBounds.Left + 2,
+                    e.CellBounds.Bottom - f.Height - 2
+                )
+                End If
+            End Using
 
-            ' Down number (bottom-left)
-            If cD(Row, Col).DownNumber > 0 Then
-                e.Graphics.DrawString(
-                cD(Row, Col).DownNumber.ToString(),
-                f, b,
-                e.CellBounds.Left + 2,
-                e.CellBounds.Bottom - f.Height - 2
-            )
-            End If
-        End Using
+            e.Handled = True
 
-        e.Handled = True
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while painting the grid cells: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
     End Sub
 
 
@@ -888,17 +1104,24 @@ Public Class Form1
         Me.Hide()
         DictionaryGenerator.Show()
     End Sub
-    Sub btnPuzzle_Click(sender As Object, e As EventArgs)
-        If Puzzle = "cWord" Then
-            RestartApp("xWord")
-        Else
+    Sub RadioButton_CheckedChanged(sender As Object, e As EventArgs)
+        If sender Is RbCodeword Then
             RestartApp("cWord")
+        ElseIf sender Is RbCrossword Then
+            RestartApp("xWord")
+        ElseIf sender Is RbPhrase Then
+            RestartApp("pWord")
         End If
     End Sub
     Private Sub BtnNew_Click(sender As Object, e As EventArgs)
         RestartApp(Puzzle)
     End Sub
-
+    Private Sub RestartApp(puzzleType As String)
+        Dim exePath As String = Application.ExecutablePath
+        Dim psi As New ProcessStartInfo(exePath, puzzleType)
+        Process.Start(psi)
+        Application.Exit()
+    End Sub
     Private Sub BtnPrint_Click(sender As Object, e As EventArgs)
 
         Dim dlg As New PrintDialog With {.Document = pd}
@@ -911,7 +1134,7 @@ Public Class Form1
                 If response = vbYes Then PrintWords = True Else PrintWords = False
             End If
 
-            If Puzzle = "xWord" Then
+            If Puzzle = "xWord" OrElse Puzzle = "pWord" Then
                 pd.DefaultPageSettings.Landscape = True
                 Dim Number As Integer = (lstClues.Count) - 1
                 LstRnr = GenerateRandomNumber(Number)
@@ -940,25 +1163,28 @@ Public Class Form1
         '-----This routine handles multi-page printing for codeword puzzles-----
 
         Dim n As New Random(15)
+        Try
 
+            Select Case PrintPageIndex
+                Case 0
+                    PrintPuzzlePage(e)
+                    PrintLetterGrid(e)
+                    PrintAlphabetGrid(e)
+                    PrintClueLists(e)
+                    e.HasMorePages = True
+                Case 1
+                    PrintAnswerKeyPage(e)
+                    PrintPlacedWords(e)
+                    PrintxWordAnswers(e)
+                    PrintClueLists(e)
+                    e.HasMorePages = False
+            End Select
+            PrintPageIndex += 1
+        Catch ex As Exception
+            MessageBox.Show("An error occurred during printing: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
 
-        Select Case PrintPageIndex
-            Case 0
-                PrintPuzzlePage(e)
-                PrintLetterGrid(e)
-                PrintAlphabetGrid(e)
-                PrintClueLists(e)
-                e.HasMorePages = True
-            Case 1
-                PrintAnswerKeyPage(e)
-                PrintPlacedWords(e)
-                PrintxWordAnswers(e)
-                PrintClueLists(e)
-                e.HasMorePages = False
-        End Select
-        PrintPageIndex += 1
-
-        End Sub
+    End Sub
 
 
     Sub PrintClueLists(e As PrintPageEventArgs)
@@ -969,70 +1195,82 @@ Public Class Form1
         Dim font As New Font("Segoe UI", 9)
         Dim y = 20
         Dim ClueNumber As Integer = 0
+        Try
 
-        g.DrawString("Across Clues: ", font, Brushes.Black, 800, y)
-        y += 20
+            g.DrawString("Across Clues: ", font, Brushes.Black, 800, y)
+            y += 20
 
 
-        For Each c In lstClues.Where(Function(x) x.IsAcross)
-            ClueNumber = c.ClueNumber
-            g.DrawString(ClueNumber & " :  " & c.Clue, font, Brushes.Black, 800, y)
-            y += 15
-        Next
+            For Each c In lstClues.Where(Function(x) x.IsAcross)
+                ClueNumber = c.ClueNumber
+                g.DrawString(ClueNumber & " :  " & c.Clue, font, Brushes.Black, 800, y)
+                y += 15
+            Next
 
-        y += 20
-        g.DrawString("Down Clues: ", font, Brushes.Black, 800, y)
-        y += 20
-        For Each c In lstClues.Where(Function(x) Not x.IsAcross)
-            ClueNumber = c.ClueNumber
-            g.DrawString(ClueNumber & " :  " & c.Clue, font, Brushes.Black, 800, y)
-            y += 15
-        Next
+            y += 20
+            g.DrawString("Down Clues: ", font, Brushes.Black, 800, y)
+            y += 20
+            For Each c In lstClues.Where(Function(x) Not x.IsAcross)
+                ClueNumber = c.ClueNumber
+                g.DrawString(ClueNumber & " :  " & c.Clue, font, Brushes.Black, 800, y)
+                y += 15
+            Next
+
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while printing clues: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
 
     End Sub
     Private Sub PrintPuzzlePage(e As PrintPageEventArgs)
+        Try
+            Dim g = e.Graphics
+            g.DrawString("CODEWORD PUZZLE" & " - Puzzle #" & PuzzleNumber.ToString(),
+                     New Font("Segoe UI", 16, FontStyle.Bold),
+                     Brushes.Black, 50, 20)
 
-        Dim g = e.Graphics
-        g.DrawString("CODEWORD PUZZLE" & " - Puzzle #" & PuzzleNumber.ToString(),
-                 New Font("Segoe UI", 16, FontStyle.Bold),
-                 Brushes.Black, 50, 20)
-
-        PrintGrid(e, printLetters:=False)
+            PrintGrid(e, printLetters:=False)
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while printing the puzzle page: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
 
     End Sub
     Private Sub PrintAnswerKeyPage(e As PrintPageEventArgs)
+        Try
+            If Puzzle <> "cWord" Then Return
 
-        If Puzzle <> "cWord" Then Return
+            'pd.DefaultPageSettings.Landscape = False
 
-        'pd.DefaultPageSettings.Landscape = False
+            Dim g = e.Graphics
+            g.DrawString("ANSWER KEY" & " - Puzzle #" & PuzzleNumber.ToString(),
+                     New Font("Segoe UI", 16, FontStyle.Bold),
+                     Brushes.Black, 50, 20)
 
-        Dim g = e.Graphics
-        g.DrawString("ANSWER KEY" & " - Puzzle #" & PuzzleNumber.ToString(),
-                 New Font("Segoe UI", 16, FontStyle.Bold),
-                 Brushes.Black, 50, 20)
-
-        PrintGrid(e, printLetters:=True)
+            PrintGrid(e, printLetters:=True)
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while printing the answer key page: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
     End Sub
 
     Private Sub PrintxWordAnswers(e As PrintPageEventArgs)
+        Try
+            Dim g = e.Graphics
+            g.DrawString("CROSS WORD PUZZLE" & " - Puzzle #" & PuzzleNumber.ToString(),
+                     New Font("Segoe UI", 16, FontStyle.Bold),
+                     Brushes.Black, 50, 20)
 
-        Dim g = e.Graphics
-        g.DrawString("CROSS WORD PUZZLE" & " - Puzzle #" & PuzzleNumber.ToString(),
-                 New Font("Segoe UI", 16, FontStyle.Bold),
-                 Brushes.Black, 50, 20)
-
-        PrintGrid(e, printLetters:=True)
-
+            PrintGrid(e, printLetters:=True)
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while printing the crossword answers: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
     End Sub
-
     Private Sub PrintPlacedWords(e As PrintPageEventArgs)
-
+        Try
             If PrintWords = False Then Return
-        ' pd.DefaultPageSettings.Landscape = False
+            ' pd.DefaultPageSettings.Landscape = False
 
-        Dim g = e.Graphics
-        Dim y = 750
-        Dim font As New Font("Segoe UI", 12)
+            Dim g = e.Graphics
+            Dim y = 750
+            Dim font As New Font("Segoe UI", 12)
             g.DrawString("Placed Words:", New Font(font, FontStyle.Bold), Brushes.Black, 50, y)
             y += 30
             If PlacedWords.Count = 0 Then
@@ -1051,37 +1289,44 @@ Public Class Form1
                     l = 50
                 End If
             Next
-        End Sub
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while printing the placed words: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
+    End Sub
 
     Private Sub PrintAlphabetGrid(e As PrintPageEventArgs)
+        Try
+            If Puzzle <> "cWord" Then Return
+            ' pd.DefaultPageSettings.Landscape = False
 
-        If Puzzle <> "cWord" Then Return
-        ' pd.DefaultPageSettings.Landscape = False
+            Dim g = e.Graphics
+            Dim size = 41
+            Dim x = 140
+            Dim y = 700
 
-        Dim g = e.Graphics
-        Dim size = 41
-        Dim x = 140
-        Dim y = 700
-
-        Using p As New Pen(Color.Black)
-            ' draw alphabet BELOW the grid
-            Dim textY As Integer = y + size + 10
-            g.DrawString(txt_Alphabet.Text,
-                 New Font("Segoe UI", 16, FontStyle.Bold), Brushes.Black, x, textY)
-        End Using
+            Using p As New Pen(Color.Black)
+                ' draw alphabet BELOW the grid
+                Dim textY As Integer = y + size + 10
+                g.DrawString(txt_Alphabet.Text,
+                     New Font("Segoe UI", 16, FontStyle.Bold), Brushes.Black, x, textY)
+            End Using
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while printing the alphabet grid: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
 
     End Sub
     Private Sub PrintLetterGrid(e As PrintPageEventArgs)
-        If Puzzle <> "cWord" Then Return
 
-        ' pd.DefaultPageSettings.Landscape = False
+        Try
+            If Puzzle <> "cWord" Then Return
 
-        Dim g = e.Graphics        ' ✅ THIS is the printer page
+            ' pd.DefaultPageSettings.Landscape = False
+
+            Dim g = e.Graphics        ' ✅ THIS is the printer page
             Dim size = 41
             Dim sx = 150
             Dim sy = 850              ' OK: lower on the page
             Dim f As New Font("Segoe UI", 12, FontStyle.Bold)
-
 
             Using p As New Pen(Color.Black)
 
@@ -1108,90 +1353,96 @@ Public Class Form1
                         End If
                     Next
                 Next
-
             End Using
 
-        End Sub
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while printing the letter grid: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
+
+    End Sub
 
 
     Private Sub PrintGrid(e As PrintPageEventArgs, printLetters As Boolean)
 
-        Dim g = e.Graphics
-        Dim size = 46
-        Dim sx = 50
-        Dim sy = 50
-        Dim letterFont As New Font("Segoe UI", 12, FontStyle.Bold)
-        Dim numberFont As New Font("Segoe UI", 8, FontStyle.Bold)
-        Dim count As Integer = 0
+        Try
+            Dim g = e.Graphics
+            Dim size = 46
+            Dim sx = 50
+            Dim sy = 50
+            Dim letterFont As New Font("Segoe UI", 12, FontStyle.Bold)
+            Dim numberFont As New Font("Segoe UI", 8, FontStyle.Bold)
+            Dim count As Integer = 0
 
-        Using p As New Pen(Color.Black)
+            Using p As New Pen(Color.Black)
 
-            For r = 0 To GridSize - 1
-                For c = 0 To GridSize - 1
+                For r = 0 To GridSize - 1
+                    For c = 0 To GridSize - 1
 
-                    Dim x = sx + c * size
-                    Dim y = sy + r * size
-                    Dim rect As New Rectangle(x, y, size, size)
-                    'Dim text As String
+                        Dim x = sx + c * size
+                        Dim y = sy + r * size
+                        Dim rect As New Rectangle(x, y, size, size)
+                        'Dim text As String
 
-                    If Puzzle = "cWord" Then
-                        If printLetters Then
-                            Dim num As String = DgvGrid(c, r).Value
-                            If num <> "" Then g.DrawString(num, numberFont, Brushes.Black, x + 2, y + 1)
-                        Else
-                            g.DrawString(Grid(r, c).ToString(), letterFont, Brushes.Black, x + 6, y + 5)
-                        End If
+                        If Puzzle = "cWord" Then
+                            If printLetters Then
+                                Dim num As String = DgvGrid(c, r).Value
+                                If num <> "" Then g.DrawString(num, numberFont, Brushes.Black, x + 2, y + 1)
+                            Else
+                                g.DrawString(Grid(r, c).ToString(), letterFont, Brushes.Black, x + 6, y + 5)
+                            End If
 
-                        If Grid(r, c) = "."c Then
-                            g.FillRectangle(Brushes.Black, rect)
-                        Else
-                            g.DrawRectangle(p, rect)
-                        End If
+                            If Grid(r, c) = "."c Then
+                                g.FillRectangle(Brushes.Black, rect)
+                            Else
+                                g.DrawRectangle(p, rect)
+                            End If
 
-                    Else ' Its a crossword. For crossword, just print  clue numbers
+                        Else ' Its a crossword. For crossword, just print  clue numbers
 
-                        If Grid(r, c) = "."c Then
-                            g.FillRectangle(Brushes.Black, rect)
-                        Else
-                            g.DrawRectangle(p, rect)
-                        End If
+                            If Grid(r, c) = "."c Then
+                                g.FillRectangle(Brushes.Black, rect)
+                            Else
+                                g.DrawRectangle(p, rect)
+                            End If
 
-                        If printLetters Then ' Print the answer sheet
-                            Dim Letter As String = DgvGrid(c, r).Value
-                            If Letter <> "" Then g.DrawString(Letter, letterFont, Brushes.Black, x + 12, y + 12)
-                        End If
+                            If printLetters Then ' Print the answer sheet
+                                Dim Letter As String = DgvGrid(c, r).Value
+                                If Letter <> "" Then g.DrawString(Letter, letterFont, Brushes.Black, x + 12, y + 12)
+                            End If
 
-                        Dim ClueNumber As Integer = 0
+                            Dim ClueNumber As Integer = 0
 
-                        For i = 0 To lstClues.Count - 1
-                            Dim row = lstClues(i).Row
-                            Dim col = lstClues(i).Col
-                            Dim across = lstClues(i).IsAcross
-                            Dim placeLetter = lstClues(i).PlaceLetter
-                            ClueNumber += 1
-                            If row = r And col = c Then
-                                If across Then
-                                    g.DrawString(ClueNumber.ToString(), numberFont, Brushes.Black, x + 30, y + 2)
-                                    count += 1
-                                    If placeLetter Then ' if this clue is selected to have its letter placed on the crossword, print it in the cell
-                                        Dim Letter As String = DgvGrid(c, r).Value
-                                        g.DrawString(Letter, letterFont, Brushes.Red, x + 12, y + 12)
-                                    End If
-                                Else
-                                    g.DrawString(ClueNumber.ToString(), numberFont, Brushes.Black, x, y + 30)
-                                    count += 1
-                                    If placeLetter Then ' if this clue is selected to have its letter placed on the crossword, print it in the cell
-                                        Dim Letter As String = DgvGrid(c, r).Value
-                                        g.DrawString(Letter, letterFont, Brushes.Red, x + 12, y + 12)
+                            For i = 0 To lstClues.Count - 1
+                                Dim row = lstClues(i).Row
+                                Dim col = lstClues(i).Col
+                                Dim across = lstClues(i).IsAcross
+                                Dim placeLetter = lstClues(i).PlaceLetter
+                                ClueNumber += 1
+                                If row = r And col = c Then
+                                    If across Then
+                                        g.DrawString(ClueNumber.ToString(), numberFont, Brushes.Black, x + 30, y + 2)
+                                        count += 1
+                                        If placeLetter Then ' if this clue is selected to have its letter placed on the crossword, print it in the cell
+                                            Dim Letter As String = DgvGrid(c, r).Value
+                                            g.DrawString(Letter, letterFont, Brushes.Red, x + 12, y + 12)
+                                        End If
+                                    Else
+                                        g.DrawString(ClueNumber.ToString(), numberFont, Brushes.Black, x, y + 30)
+                                        count += 1
+                                        If placeLetter Then ' if this clue is selected to have its letter placed on the crossword, print it in the cell
+                                            Dim Letter As String = DgvGrid(c, r).Value
+                                            g.DrawString(Letter, letterFont, Brushes.Red, x + 12, y + 12)
+                                        End If
                                     End If
                                 End If
-                            End If
-                        Next
-                    End If
+                            Next
+                        End If
+                    Next
                 Next
-            Next
-        End Using
-
+            End Using
+        Catch ex As Exception
+            MessageBox.Show("An error occurred while printing the grid: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
     End Sub
 
 #End Region
