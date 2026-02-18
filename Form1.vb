@@ -124,7 +124,7 @@ Public Class Form1
 
             ' Puzzle = "cWord"
             'Puzzle = "xWord"
-            'Puzzle = "pWord"
+            Puzzle = "pWord"
 
             If Puzzle = "pWord" Then
                 DictFilePath = PhraseFilePath
@@ -167,8 +167,8 @@ Public Class Form1
                     Dim parts = line.Split(","c, 2)
                     Dim w = parts(0).Trim().ToUpper()
                     Clu = If(parts.Length > 1, parts(1).Trim(), "")
+                    If Len(w) > 12 Then Continue While ' Skip lines that are too long
                     Dictionary.Add(New Clue With {.Word = w, .Clue = Clu})
-                    'WordLookup.Add(w) ' store just the word for Contains checks
                 End While
                 sr.Close()
             End Using
@@ -193,17 +193,18 @@ Public Class Form1
                 End If
                 i += 1
             End While
+
             If i >= count * 10 Then
                 MsgBox("Selected " & selected.Count.ToString() & " unique words out of requested " & count.ToString() & ". Consider increasing the word list or reducing the requested count.", MessageBoxButtons.OK, "Warning")
                 Dim response = MsgBox("Do you want to reload the dictionary?", MessageBoxButtons.YesNo, "Reload Dictionary")
                 If response = DialogResult.Yes Then
+                    Dim newfilepath = CopyWithAutoName(PhraseFilePath) ' Save a copy of the current phrase list with an auto-generated name to avoid overwriting the existing one.
                     DownloadPhraseList() ' Get a new Phrase List from Camsoft.au
                     LoadDictionary(DictFilePath) ' Reload the dictionary and try again
                     Return
                 End If
             End If
 
-            'selected = Dictionary.OrderBy(Function(x) rnd.Next()).Take(count).ToList()
             Dictionary = selected.OrderByDescending(Function(x) x.Word.Length).ToList() ' Sort by length for better puzzle generation
 
         Catch ex As Exception
@@ -212,6 +213,22 @@ Public Class Form1
 
     End Sub
 
+    Function CopyWithAutoName(sourceFile As String) As String
+        Dim folder As String = Path.GetDirectoryName(sourceFile)
+        Dim baseName As String = Path.GetFileNameWithoutExtension(sourceFile)
+        Dim ext As String = Path.GetExtension(sourceFile)
+
+        Dim newFile As String = Path.Combine(folder, baseName & ext)
+        Dim counter As Integer = 1
+
+        While File.Exists(newFile)
+            newFile = Path.Combine(folder, $"{baseName} ({counter}){ext}")
+            counter += 1
+        End While
+
+        File.Copy(sourceFile, newFile)
+        Return newFile
+    End Function
 #End Region
 
 #Region "DOWNLOAD PHRASE LIST FROM CAMSOFT.AU"
@@ -233,9 +250,9 @@ Public Class Form1
                     If parts.Length >= 2 Then
                         Dim entry As New Clue With {
                             .Word = parts(0).Trim(),
-                            .Clue = "Auto generated Clue" 'parts(1).Trim()
+                            .Clue = "Auto generated Clue"
                         }
-                        If Len(entry.Word) <= GridSize AndAlso Len(entry.Word) > 4 Then
+                        If Len(entry.Word) <= 12 AndAlso Len(entry.Word) > 4 Then 'Select only phrases of appropriate length for the puzzle
                             DictList.Add(entry)
                         End If
                     End If
