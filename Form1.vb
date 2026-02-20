@@ -123,7 +123,7 @@ Public Class Form1
             If Puzzle = "" Then Puzzle = "cWord" ' Default to codeword if not set
 
             ' Puzzle = "cWord"
-            Puzzle = "xWord"
+            'Puzzle = "xWord"
             ' Puzzle = "pWord"
 
             If Puzzle = "pWord" Then
@@ -172,7 +172,7 @@ Public Class Form1
                 End While
                 sr.Close()
             End Using
-            RandomiseDictionary(200) ' Load a random selection of 200 words from the dictionary for puzzle generation. This helps ensure variety in the generated puzzles and can improve performance by working with a smaller set of words during placement.
+            RandomiseDictionary(100) ' Load a random selection of 100 words from the dictionary for puzzle generation. This helps ensure variety in the generated puzzles and can improve performance by working with a smaller set of words during placement.
         Catch ex As Exception
             MessageBox.Show("Failed to load dictionary: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
         End Try
@@ -203,6 +203,7 @@ Public Class Form1
                     If response2 = DialogResult.Yes Then
                         Dim newfilepath = CopyWithAutoName(PhraseFilePath) ' Save a copy of the current phrase list with an auto-generated name to avoid overwriting the existing one.
                         DownloadPhraseList() ' Get a new Phrase List from Camsoft.au
+
                         LoadDictionary(DictFilePath) ' Reload the dictionary and try again
                     End If
                     Return
@@ -237,7 +238,8 @@ Public Class Form1
 
 #Region "DOWNLOAD PHRASE LIST FROM CAMSOFT.AU"
     ' Downloads the list of phrases from Camsoft.au website.
-    'Should ony run once, and the file will be saved locally for future use. This is to ensure we have a rich list of phrases without having to include them all in the installer, which would make it very large. The word list is small, so it's included in the installer
+
+    'Probably not be used now, as the phrase list is included in the installer, but it's here if we want to update the list in the future without having to release a new version of the software. It can also be used to get a new list of phrases if the user wants to refresh their list.
     Sub DownloadPhraseList()
 
         Try
@@ -294,8 +296,8 @@ Public Class Form1
     Private Sub SaveDictionary(filepath As String, wlist As List(Of Clue))
         Try
             Using writer As New StreamWriter(filepath, False)
-                writer.WriteLine("Word,Clue")
                 For Each entry In wlist
+                    If entry.Word = "Word" Then Continue For ' Skip any words that contain "Word" 
                     writer.WriteLine($"{entry.Word},{entry.Clue}")
                 Next
                 writer.Close()
@@ -611,7 +613,6 @@ Public Class Form1
 
     '===================== PLACEMENT LOGIC =====================
 
-    ' Function TryPlaceWord(entry As ClueEntry) As Boolean
     Function TryPlaceWord(entry As Clue) As Boolean
         Try
 
@@ -821,7 +822,7 @@ Public Class Form1
 
         Catch ex As Exception
             MessageBox.Show("An error occurred while checking if a word has already been used: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
-            Return True ' Return true to prevent placement if there's an error
+            Return True
         End Try
     End Function
 
