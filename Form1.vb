@@ -113,28 +113,28 @@ Public Class Form1
 
             'Check if there is a dictionary. If not, Create one from the included word list
             If Not File.Exists(DictFilePath) Then
-                createDictionary() ' Ensure dictionary exists
+                createDictionary("xWord", DictFilePath) ' Ensure dictionary exists
             End If
 
             If Not File.Exists(PhraseFilePath) Then
-                DownloadPhraseList() ' Ensure phrase list exists
+                createDictionary("pWord", PhraseFilePath)
             End If
 
             If Puzzle = "" Then Puzzle = "cWord" ' Default to codeword if not set
 
             ' Puzzle = "cWord"
-            'Puzzle = "xWord"
-            Puzzle = "pWord"
+            Puzzle = "xWord"
+            ' Puzzle = "pWord"
 
             If Puzzle = "pWord" Then
                 DictFilePath = PhraseFilePath
-            Else
+            ElseIf Puzzle = "xWord" Then
+                DictFilePath = WordFilePath
+            ElseIf Puzzle = "cWord" Then
                 DictFilePath = WordFilePath
             End If
 
             LoadDictionary(DictFilePath)
-            'Me.Hide()
-            ' DictionaryGenerator.Show()
 
             SetupGrid()
             InitGrid()
@@ -198,9 +198,13 @@ Public Class Form1
                 MsgBox("Selected " & selected.Count.ToString() & " unique words out of requested " & count.ToString() & ". Consider increasing the word list or reducing the requested count.", MessageBoxButtons.OK, "Warning")
                 Dim response = MsgBox("Do you want to reload the dictionary?", MessageBoxButtons.YesNo, "Reload Dictionary")
                 If response = DialogResult.Yes Then
-                    Dim newfilepath = CopyWithAutoName(PhraseFilePath) ' Save a copy of the current phrase list with an auto-generated name to avoid overwriting the existing one.
-                    DownloadPhraseList() ' Get a new Phrase List from Camsoft.au
-                    LoadDictionary(DictFilePath) ' Reload the dictionary and try again
+                    Dim Message As String = "If you choose to download a new dictionary, a copy of your current dictionary will be saved with an auto-generated name to avoid overwriting it. Do you want to proceed with downloading a new dictionary?"
+                    Dim response2 = MsgBox(Message, MessageBoxButtons.YesNo Or vbQuestion, "Download New Dictionary")
+                    If response2 = DialogResult.Yes Then
+                        Dim newfilepath = CopyWithAutoName(PhraseFilePath) ' Save a copy of the current phrase list with an auto-generated name to avoid overwriting the existing one.
+                        DownloadPhraseList() ' Get a new Phrase List from Camsoft.au
+                        LoadDictionary(DictFilePath) ' Reload the dictionary and try again
+                    End If
                     Return
                 End If
             End If
@@ -544,6 +548,7 @@ Public Class Form1
             Me.Text = "VB.NET Codeword" & " - Puzzle #" & PuzzleNumber.ToString()
 
             lstClues.Clear()
+            PlacedWords.Clear()
             lstAcross.Items.Clear()
             lstAcross.Items.Add("Across Clues:")
             lstDown.Items.Clear()
@@ -565,8 +570,7 @@ Public Class Form1
                     cell.Style.Alignment = DataGridViewContentAlignment.MiddleCenter
                 Next
             Next
-            lstClues.Clear()
-            PlacedWords.Clear()
+
         Catch ex As Exception
             MessageBox.Show("An error occurred while initializing the grid: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
         End Try
@@ -1123,10 +1127,13 @@ Public Class Form1
     End Sub
     Sub RadioButton_CheckedChanged(sender As Object, e As EventArgs)
         If sender Is RbCodeword Then
+            Me.Close()
             RestartApp("cWord")
         ElseIf sender Is RbCrossword Then
+            Me.Close()
             RestartApp("xWord")
         ElseIf sender Is RbPhrase Then
+            Me.Close()
             RestartApp("pWord")
         End If
     End Sub
@@ -1155,7 +1162,6 @@ Public Class Form1
                 pd.DefaultPageSettings.Landscape = True
                 Dim Number As Integer = (lstClues.Count) - 1
                 LstRnr = GenerateRandomNumber(Number)
-                'AssignClues(NrOfClues)
             Else
                 pd.DefaultPageSettings.Landscape = False
             End If
@@ -1179,7 +1185,7 @@ Public Class Form1
         '-----This is the main print page handler-----
         '-----This routine handles multi-page printing for codeword puzzles-----
 
-        Dim n As New Random(15)
+        '    Dim n As New Random(15)
         Try
 
             Select Case PrintPageIndex
@@ -1206,7 +1212,7 @@ Public Class Form1
 
     Sub PrintClueLists(e As PrintPageEventArgs)
         'This routine prints the clues pages. Not used in codeword puzzles
-        If Puzzle <> "xWord" Then Return
+        If Puzzle <> "xWord" And Puzzle <> "pWord" Then Return
 
         Dim g = e.Graphics
         Dim font As New Font("Segoe UI", 9)
@@ -1216,7 +1222,6 @@ Public Class Form1
 
             g.DrawString("Across Clues: ", font, Brushes.Black, 800, y)
             y += 20
-
 
             For Each c In lstClues.Where(Function(x) x.IsAcross)
                 ClueNumber = c.ClueNumber
@@ -1283,7 +1288,6 @@ Public Class Form1
     Private Sub PrintPlacedWords(e As PrintPageEventArgs)
         Try
             If PrintWords = False Then Return
-            ' pd.DefaultPageSettings.Landscape = False
 
             Dim g = e.Graphics
             Dim y = 750
@@ -1313,8 +1317,8 @@ Public Class Form1
 
     Private Sub PrintAlphabetGrid(e As PrintPageEventArgs)
         Try
-            If Puzzle <> "cWord" Then Return
-            ' pd.DefaultPageSettings.Landscape = False
+            If Puzzle <> "cWord" Then Return 'Only print alphabet grid for codeword puzzles
+            pd.DefaultPageSettings.Landscape = False
 
             Dim g = e.Graphics
             Dim size = 41
@@ -1337,7 +1341,7 @@ Public Class Form1
         Try
             If Puzzle <> "cWord" Then Return
 
-            ' pd.DefaultPageSettings.Landscape = False
+            pd.DefaultPageSettings.Landscape = False
 
             Dim g = e.Graphics        ' ✅ THIS is the printer page
             Dim size = 41
@@ -1414,7 +1418,7 @@ Public Class Form1
                                 g.DrawRectangle(p, rect)
                             End If
 
-                        Else ' Its a crossword. For crossword, just print  clue numbers
+                        Else ' Its a crossword or a PhraseWord.  just print  clue numbers
 
                             If Grid(r, c) = "."c Then
                                 g.FillRectangle(Brushes.Black, rect)
@@ -1463,6 +1467,8 @@ Public Class Form1
     End Sub
 
 #End Region
-
+    Private Sub Form1_FormClosing(sender As Object, e As FormClosingEventArgs) Handles Me.FormClosing
+        Me.Dispose()
+    End Sub
 End Class
 

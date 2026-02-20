@@ -9,13 +9,16 @@ Imports System.IO
             Public Clue As String
         End Class
 
-    Sub createDictionary()
+    Public Sub createDictionary(Puzzle As String, fPath As String)
 
         Dim wordlist As List(Of ClueEntry)
         wordlist = New List(Of ClueEntry)
         Dim seen As New HashSet(Of String)
 
-        Dim Words As New List(Of ClueEntry) From {
+
+        If Puzzle = "xWord" OrElse Puzzle = "cWord" Then
+
+            Dim Words As New List(Of ClueEntry) From {
     New ClueEntry With {.Word = "HOUSE", .Clue = "Place where people live"},
     New ClueEntry With {.Word = "THREAD", .Clue = "Used for sewing"},
     New ClueEntry With {.Word = "BREAD", .Clue = "Baked food made from flour"},
@@ -130,11 +133,77 @@ New ClueEntry With {.Word = "BATTERY", .Clue = "Stores electrical energy"},
 New ClueEntry With {.Word = "ENGINE", .Clue = "Machine that produces power"},
 New ClueEntry With {.Word = "SYSTEM", .Clue = "Set of connected parts"}
 }
+            wordlist.AddRange(Words)
 
-        wordlist.AddRange(Words)
+        ElseIf Puzzle = "pWord" Then
+            Dim Words As New List(Of ClueEntry) From {
+                New ClueEntry With {.Word = "APPLE", .Clue = "A fruit"},
+                New ClueEntry With {.Word = "BRAVE", .Clue = "Courageous"},
+                New ClueEntry With {.Word = "CRANE", .Clue = "A type of bird"},
+                New ClueEntry With {.Word = "DANCE", .Clue = "Move rhythmically"},
+                New ClueEntry With {.Word = "EARTH", .Clue = "Our planet"},
+                New ClueEntry With {.Word = "FLAME", .Clue = "Fire"},
+                New ClueEntry With {.Word = "GRAPE", .Clue = "A small fruit"},
+                New ClueEntry With {.Word = "HEART", .Clue = "Organ that pumps blood"},
+                New ClueEntry With {.Word = "ISLAND", .Clue = "Land surrounded by water"},
+                New ClueEntry With {.Word = "JOKER", .Clue = "A wild card"},
+                New ClueEntry With {.Word = "KITE", .Clue = "A flying toy"},
+                New ClueEntry With {.Word = "LEMON", .Clue = "A sour fruit"},
+                New ClueEntry With {.Word = "MOUSE", .Clue = "A small rodent"},
+                New ClueEntry With {.Word = "NIGHT", .Clue = "Opposite of day"},
+                New ClueEntry With {.Word = "OCEAN", .Clue = "Large body of salt water"},
+                New ClueEntry With {.Word = "PLANT", .Clue = "Living organism"},
+                New ClueEntry With {.Word = "QUEEN", .Clue = "Female monarch"},
+                New ClueEntry With {.Word = "RIVER", .Clue = "Flowing water"},
+                New ClueEntry With {.Word = "SNAKE", .Clue = "Legless reptile"},
+                New ClueEntry With {.Word = "TRAIN", .Clue = "Rail transport"},
+                New ClueEntry With {.Word = "UNIVERSE", .Clue = "All of space"},
+                New ClueEntry With {.Word = "VIOLET", .Clue = "A purple flower"},
+                New ClueEntry With {.Word = "WHALE", .Clue = "Large marine mammal"},
+                New ClueEntry With {.Word = "XENON", .Clue = "Noble gas"},
+                New ClueEntry With {.Word = "YACHT", .Clue = "Luxury boat"},
+                New ClueEntry With {.Word = "ZEBRA", .Clue = "Striped animal"},
+               New ClueEntry With {.Word = "EUNUCH", .Clue = "Sterile Male"},
+               New ClueEntry With {.Word = "GOOSING", .Clue = "Grab Ass"},
+               New ClueEntry With {.Word = "IRISHLINEN", .Clue = "Good sheets"},
+               New ClueEntry With {.Word = "MEDICATED", .Clue = "Dosed up"},
+               New ClueEntry With {.Word = "SORBET", .Clue = "Pallet refresher"},
+               New ClueEntry With {.Word = "CROWDFUNDER", .Clue = "Give a little"},
+               New ClueEntry With {.Word = "COINMAGIC", .Clue = "Magicians do this"},
+               New ClueEntry With {.Word = "EXTRACTION", .Clue = "Dentist's job"},
+               New ClueEntry With {.Word = "ROYALFLUSH", .Clue = "Poker players dream"},
+               New ClueEntry With {.Word = "SOUVENEER", .Clue = "Brought home from holiday"},
+               New ClueEntry With {.Word = "ILLTRYREDIALING", .Clue = "If you get the wrong number"},
+               New ClueEntry With {.Word = "WATERINGHOLE", .Clue = "Local Bar"},
+               New ClueEntry With {.Word = "FALLLINE", .Clue = "A line straight down a slope"},
+               New ClueEntry With {.Word = "BUSKINGTABLES", .Clue = "Casual Waiter"},
+               New ClueEntry With {.Word = "CARPEDIEM", .Clue = "Seize the day"},
+               New ClueEntry With {.Word = "THESNIP", .Clue = "Vasectomy"},
+               New ClueEntry With {.Word = "METARZAN", .Clue = "YouJane"},
+               New ClueEntry With {.Word = "SOWEIRD", .Clue = "Very unusual"},
+               New ClueEntry With {.Word = "PADDYFIELD", .Clue = "Rice growing area"},
+               New ClueEntry With {.Word = "FELONIOUSMONK", .Clue = "Rasputin"},
+               New ClueEntry With {.Word = "RITETOBEARARMS", .Clue = "Second Amendment"},
+               New ClueEntry With {.Word = "SAWNOFFSHOTGUN", .Clue = "Criminals weapon of choice"},
+               New ClueEntry With {.Word = "FAWNOVER", .Clue = "Excessive admiration"},
+               New ClueEntry With {.Word = "FORHINDQUARTERS", .Clue = "Go to the local Butcher"},
+               New ClueEntry With {.Word = "ALLFORIT", .Clue = "I agree, Lets do it"},
+               New ClueEntry With {.Word = "NINETEEN", .Clue = "Going on Twenty"},
+               New ClueEntry With {.Word = "LICKOFSENSE", .Clue = "What unruly kids don't have"},
+               New ClueEntry With {.Word = "BACONARTIST", .Clue = "Draws using Pigskin"},
+               New ClueEntry With {.Word = "NIGHTSDREAM", .Clue = "Mid Summer ???"},
+               New ClueEntry With {.Word = "HOUSEDETECTIVE", .Clue = "Hotel security agent"},
+               New ClueEntry With {.Word = "DIVORCEE", .Clue = "Now flying solo"},
+               New ClueEntry With {.Word = "IRAQWAR", .Clue = "Second Gulf war"},
+               New ClueEntry With {.Word = "SANCTUMS", .Clue = "The seat of power"}
+                           }
+
+            wordlist.AddRange(Words)
+        End If
 
 
-        Using writer As New StreamWriter(WordFilePath, False)
+
+        Using writer As New StreamWriter(fPath, False)
             writer.WriteLine("Word,Clue")
             For Each entry In wordlist
                 writer.WriteLine($"{entry.Word},{entry.Clue}")
@@ -142,7 +211,6 @@ New ClueEntry With {.Word = "SYSTEM", .Clue = "Set of connected parts"}
 
             writer.Close()
         End Using
-
 
     End Sub
 End Module
