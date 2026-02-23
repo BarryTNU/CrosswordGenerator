@@ -5,12 +5,15 @@ Imports System.Diagnostics
 Imports System.Net.Http
 Imports System.Net
 
+
 Public Class Form1
 
     Public DefaultPath As String = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + Path.DirectorySeparatorChar + "Crosswords"
+    Dim ProgramPath As String = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)
     Public WordFilePath As String = Path.Combine(DefaultPath, "WordList.csv")
     Public PhraseFilePath As String = Path.Combine(DefaultPath, "PhraseList.csv")
     Public DictFilePath As String = Path.Combine(DefaultPath, "Wordlist.csv")
+    'Public ipAddress As String = "https://www.camsoft.com.au/cwg/pWord.csv"
     Public ipAddress As String = "https://camsoft.au/cwg/PhraseList.csv"
 
 #Region "DATA STRUCTURES"
@@ -172,7 +175,7 @@ Public Class Form1
                 End While
                 sr.Close()
             End Using
-            RandomiseDictionary(100) ' Load a random selection of 100 words from the dictionary for puzzle generation. This helps ensure variety in the generated puzzles and can improve performance by working with a smaller set of words during placement.
+            RandomiseDictionary(200) ' Load a random selection of 200 words from the dictionary for puzzle generation. This helps ensure variety in the generated puzzles and can improve performance by working with a smaller set of words during placement.
         Catch ex As Exception
             MessageBox.Show("Failed to load dictionary: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
         End Try
@@ -185,7 +188,7 @@ Public Class Form1
         Dim i As Integer = 0
 
         Try
-            While selected.Count < 100 And i < count * 10 ' Add a safety limit to prevent infinite loops
+            While selected.Count < count And i < count * 10 ' Add a safety limit to prevent infinite loops
                 Dim index = rnd.Next(Dictionary.Count)
                 If Not usedIndexes.Contains(index) Then
                     usedIndexes.Add(index)
@@ -196,13 +199,13 @@ Public Class Form1
 
             If i >= count * 10 Then
                 MsgBox("Selected " & selected.Count.ToString() & " unique words out of requested " & count.ToString() & ". Consider increasing the word list or reducing the requested count.", MessageBoxButtons.OK, "Warning")
-                Dim response = MsgBox("Do you want to reload the dictionary?", MessageBoxButtons.YesNo, "Reload Dictionary")
+                Dim response = MsgBox("Do you want to reload the dictionary?", MessageBoxButtons.YesNo Or vbDefaultButton2, "Reload Dictionary")
                 If response = DialogResult.Yes Then
                     Dim Message As String = "If you choose to download a new dictionary, a copy of your current dictionary will be saved with an auto-generated name to avoid overwriting it. Do you want to proceed with downloading a new dictionary?"
                     Dim response2 = MsgBox(Message, MessageBoxButtons.YesNo Or vbQuestion, "Download New Dictionary")
                     If response2 = DialogResult.Yes Then
                         Dim newfilepath = CopyWithAutoName(PhraseFilePath) ' Save a copy of the current phrase list with an auto-generated name to avoid overwriting the existing one.
-                        DownloadPhraseList() ' Get a new Phrase List from Camsoft.au
+                        DownloadFiles(DictFilePath) ' Get a new Phrase List from Camsoft.au
 
                         LoadDictionary(DictFilePath) ' Reload the dictionary and try again
                     End If
@@ -236,44 +239,66 @@ Public Class Form1
     End Function
 #End Region
 
-#Region "DOWNLOAD PHRASE LIST FROM CAMSOFT.AU"
-    ' Downloads the list of phrases from Camsoft.au website.
+#Region "DOWNLOAD FILES FROM CAMSOFT.AU"
+    ' Downloads the list of clues from Camsoft.au website.
 
-    'Probably not be used now, as the phrase list is included in the installer, but it's here if we want to update the list in the future without having to release a new version of the software. It can also be used to get a new list of phrases if the user wants to refresh their list.
-    Sub DownloadPhraseList()
+    Sub DownloadFiles(fPath As String)
+        Dim WordLength As Integer = 0
+
+        If Puzzle = "pWord" Then
+            ipAddress = "http://www.camsoft.au/cwg/pWord.csv"
+            WordLength = 15
+        ElseIf Puzzle = "xWord" Then
+            ipAddress = "http://www.camsoft.au/cwg/xWord.csv"
+            WordLength = 12
+        ElseIf Puzzle = "cWord" Then
+            ipAddress = "http://www.camsoft.au/cwg/cWord.csv"
+            WordLength = 12
+        End If
 
         Try
             Using client As New WebClient()
-                client.DownloadFile(ipAddress, PhraseFilePath)
+                client.DownloadFile(ipAddress, fPath)
             End Using
 
             Dim DictList As New List(Of Clue)
 
-            Using sr As New StreamReader(PhraseFilePath)
+            Using sr As New StreamReader(fPath)
                 While Not sr.EndOfStream
                     Dim line As String = sr.ReadLine()
                     Dim parts As String() = line.Split(","c)
                     If parts.Length >= 2 Then
                         Dim entry As New Clue With {
                             .Word = parts(0).Trim(),
-                            .Clue = "Auto generated Clue"
+                            .Clue = parts(1).Trim()
                         }
-                        If Len(entry.Word) <= 12 AndAlso Len(entry.Word) > 4 Then 'Select only phrases of appropriate length for the puzzle
+                        If entry.Word = "Word" Then Continue While ' Don't use the column header
+                        If Len(entry.Word) <= WordLength AndAlso Len(entry.Word) > 4 Then 'Select only phrases of appropriate length for the puzzle
                             DictList.Add(entry)
                         End If
                     End If
                 End While
             End Using
 
-            ShuffleDictList(DictList)
-            Dim selected1000 As List(Of Clue) = DictList.Take(1000).ToList()
+            Dim selected1000 As List(Of Clue) = DictList.Take(1000).ToList() 'Take 1000 entries from the file
 
-            SaveDictionary(PhraseFilePath, selected1000)
+            CopyWithAutoName(fPath) ' Save a copy of the downloaded file with an auto-generated name to avoid overwriting the existing one.
+            SaveDictionary(fPath, selected1000)
 
         Catch ex As Exception
             MsgBox("Failed to Load Phrase List from Camsoft.au")
         End Try
     End Sub
+
+    Sub DownloadAndRun() 'This downloads and installs the Dictionary editor
+        Dim url As String = "https://www.camsoft.au/cwg/ListEditor.exe"
+        Dim savePath As String = "C:\Temp\SetupListEditor.exe"
+        Using wc As New WebClient()
+            wc.DownloadFile(url, savePath)
+        End Using
+        Process.Start(savePath)
+    End Sub
+
     Private Sub ShuffleDictList(list As List(Of Clue))
 
         Dim rnd As New Random()
@@ -1123,8 +1148,18 @@ Public Class Form1
 #Region "Button Handlers"
     ' ===================== BUTTONS =====================
     Sub EditDictionary(sender As Object, e As EventArgs)
-        Me.Hide()
-        DictionaryGenerator.Show()
+        Try
+            If Not File.Exists(ProgramPath & "\List_Editor\List_Editor.exe") Then
+                Dim message1 = "Would you like to download and install it now?"
+                Dim message2 = "Dictionary Editor not found."
+                Dim response = MessageBox.Show(message1, message2, MessageBoxButtons.YesNo, MessageBoxIcon.Error)
+                If response = DialogResult.Yes Then DownloadAndRun()
+            Else
+                Process.Start(ProgramPath & "\List_Editor\List_Editor.exe")
+            End If
+        Catch ex As Exception
+            MessageBox.Show("Failed to launch Dictionary Editor.")
+        End Try
     End Sub
     Sub RadioButton_CheckedChanged(sender As Object, e As EventArgs)
         If sender Is RbCodeword Then
@@ -1199,7 +1234,7 @@ Public Class Form1
                 Case 1
                     PrintAnswerKeyPage(e)
                     PrintPlacedWords(e)
-                    PrintxWordAnswers(e)
+                    Print_Answers(e)
                     PrintClueLists(e)
                     e.HasMorePages = False
             End Select
@@ -1247,9 +1282,20 @@ Public Class Form1
     Private Sub PrintPuzzlePage(e As PrintPageEventArgs)
         Try
             Dim g = e.Graphics
-            g.DrawString("CODEWORD PUZZLE" & " - Puzzle #" & PuzzleNumber.ToString(),
+
+            If Puzzle = "cWord" Then
+                g.DrawString("CODEWORD PUZZLE" & " - Puzzle #" & PuzzleNumber.ToString(),
                      New Font("Segoe UI", 16, FontStyle.Bold),
                      Brushes.Black, 50, 20)
+            ElseIf Puzzle = "xWord" Then
+                g.DrawString("CROSSWORD PUZZLE" & " - Puzzle #" & PuzzleNumber.ToString(),
+                     New Font("Segoe UI", 16, FontStyle.Bold),
+                     Brushes.Black, 50, 20)
+            ElseIf Puzzle = "pWord" Then
+                g.DrawString("PHRASEWORD PUZZLE" & " - Puzzle #" & PuzzleNumber.ToString(),
+                     New Font("Segoe UI", 16, FontStyle.Bold),
+                     Brushes.Black, 50, 20)
+            End If
 
             PrintGrid(e, printLetters:=False)
         Catch ex As Exception
@@ -1274,12 +1320,24 @@ Public Class Form1
         End Try
     End Sub
 
-    Private Sub PrintxWordAnswers(e As PrintPageEventArgs)
+    Private Sub Print_Answers(e As PrintPageEventArgs)
         Try
             Dim g = e.Graphics
-            g.DrawString("CROSS WORD PUZZLE" & " - Puzzle #" & PuzzleNumber.ToString(),
+
+            If Puzzle = "cWord" Then
+                g.DrawString("CODEWORD ANSWERS" & " - Puzzle #" & PuzzleNumber.ToString(),
                      New Font("Segoe UI", 16, FontStyle.Bold),
                      Brushes.Black, 50, 20)
+            ElseIf Puzzle = "xWord" Then
+                g.DrawString("CROSSWORD ANSWERS" & " - Puzzle #" & PuzzleNumber.ToString(),
+                     New Font("Segoe UI", 16, FontStyle.Bold),
+                     Brushes.Black, 50, 20)
+            ElseIf Puzzle = "pWord" Then
+                g.DrawString("PHRASE PUZZLE ANSWERS" & " - Puzzle #" & PuzzleNumber.ToString(),
+                     New Font("Segoe UI", 16, FontStyle.Bold),
+                     Brushes.Black, 50, 20)
+            End If
+
 
             PrintGrid(e, printLetters:=True)
         Catch ex As Exception
@@ -1394,6 +1452,7 @@ Public Class Form1
             Dim letterFont As New Font("Segoe UI", 12, FontStyle.Bold)
             Dim numberFont As New Font("Segoe UI", 8, FontStyle.Bold)
             Dim count As Integer = 0
+            Dim Letter As String = ""
 
             Using p As New Pen(Color.Black)
 
@@ -1403,7 +1462,6 @@ Public Class Form1
                         Dim x = sx + c * size
                         Dim y = sy + r * size
                         Dim rect As New Rectangle(x, y, size, size)
-                        'Dim text As String
 
                         If Puzzle = "cWord" Then
                             If printLetters Then
@@ -1421,14 +1479,21 @@ Public Class Form1
 
                         Else ' Its a crossword or a PhraseWord.  just print  clue numbers
 
+                            Dim sPC As String = "-" ' separator for showing space in clue list. Not used in crossword clues but used in phrase word clues to show where spaces are.
+
                             If Grid(r, c) = "."c Then
                                 g.FillRectangle(Brushes.Black, rect)
                             Else
                                 g.DrawRectangle(p, rect)
                             End If
 
+                            If Grid(r, c) = " "c And NrOfClues > 0 Then
+                                Letter = DgvGrid(c, r).Value
+                                g.DrawString(sPC, letterFont, Brushes.Black, x + 12, y + 12)
+                            End If
+
                             If printLetters Then ' Print the answer sheet
-                                Dim Letter As String = DgvGrid(c, r).Value
+                                Letter = DgvGrid(c, r).Value
                                 If Letter <> "" Then g.DrawString(Letter, letterFont, Brushes.Black, x + 12, y + 12)
                             End If
 
@@ -1444,16 +1509,24 @@ Public Class Form1
                                     If across Then
                                         g.DrawString(ClueNumber.ToString(), numberFont, Brushes.Black, x + 30, y + 2)
                                         count += 1
+                                        If Puzzle = "pWord" And NrOfClues > 1 Then
+                                            Letter = DgvGrid(c, r).Value
+                                            g.DrawString(Letter, letterFont, Brushes.Black, x + 12, y + 12) ' show the first letter of the word if this is a phrase word puzzle
+                                        End If
                                         If placeLetter Then ' if this clue is selected to have its letter placed on the crossword, print it in the cell
-                                            Dim Letter As String = DgvGrid(c, r).Value
-                                            g.DrawString(Letter, letterFont, Brushes.Red, x + 12, y + 12)
+                                            Letter = DgvGrid(c, r).Value
+                                            g.DrawString(Letter, letterFont, Brushes.Black, x + 12, y + 12)
                                         End If
                                     Else
                                         g.DrawString(ClueNumber.ToString(), numberFont, Brushes.Black, x, y + 30)
                                         count += 1
+                                        If Puzzle = "pWord" And NrOfClues > 1 Then
+                                            Letter = DgvGrid(c, r).Value
+                                            g.DrawString(Letter, letterFont, Brushes.Black, x + 12, y + 12) ' show the first letter of the word if this is a phrase word puzzle
+                                        End If
                                         If placeLetter Then ' if this clue is selected to have its letter placed on the crossword, print it in the cell
-                                            Dim Letter As String = DgvGrid(c, r).Value
-                                            g.DrawString(Letter, letterFont, Brushes.Red, x + 12, y + 12)
+                                            Letter = DgvGrid(c, r).Value
+                                            g.DrawString(Letter, letterFont, Brushes.Black, x + 12, y + 12)
                                         End If
                                     End If
                                 End If
@@ -1469,7 +1542,13 @@ Public Class Form1
 
 #End Region
     Private Sub Form1_FormClosing(sender As Object, e As FormClosingEventArgs) Handles Me.FormClosing
+        ' Avoid disposing the form during Application.Exit to prevent collection modification
+        If e.CloseReason = CloseReason.ApplicationExitCall Then
+            Return
+        End If
+
+        ' If you still want to explicitly dispose in other close cases:
         Me.Dispose()
     End Sub
-End Class
 
+End Class

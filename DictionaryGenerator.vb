@@ -348,9 +348,16 @@ Public Class DictionaryGenerator
     End Sub
 
 #End Region
-    Private Sub Form1_FormClosing(sender As Object, e As FormClosingEventArgs) Handles Me.FormClosing
+    Private Sub DictionaryGenerator_FormClosing(sender As Object, e As FormClosingEventArgs) Handles Me.FormClosing
+        ' If app is exiting, do not call Show/Hide which modifies Application.OpenForms
+        If e.CloseReason = CloseReason.ApplicationExitCall Then
+            Return
+        End If
+
         Me.Hide()
-        Form1.Show()
+        If Not Form1.IsDisposed Then
+            Form1.Show()
+        End If
     End Sub
 
 End Class
