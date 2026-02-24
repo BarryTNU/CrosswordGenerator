@@ -10,9 +10,10 @@ Public Class Form1
 
     Public DefaultPath As String = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) + Path.DirectorySeparatorChar + "Crosswords"
     Dim ProgramPath As String = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)
-    Public WordFilePath As String = Path.Combine(DefaultPath, "WordList.csv")
+    Public CrossFilePath As String = Path.Combine(DefaultPath, "CrossList.csv")
     Public PhraseFilePath As String = Path.Combine(DefaultPath, "PhraseList.csv")
-    Public DictFilePath As String = Path.Combine(DefaultPath, "Wordlist.csv")
+    Public CodeFilePath As String = Path.Combine(DefaultPath, "CodeList.csv")
+    Public DictFilePath As String = Path.Combine(DefaultPath, "CodeList.csv")
     'Public ipAddress As String = "https://www.camsoft.com.au/cwg/pWord.csv"
     Public ipAddress As String = "https://camsoft.au/cwg/PhraseList.csv"
 
@@ -115,8 +116,12 @@ Public Class Form1
             End If
 
             'Check if there is a dictionary. If not, Create one from the included word list
-            If Not File.Exists(DictFilePath) Then
-                createDictionary("xWord", DictFilePath) ' Ensure dictionary exists
+            If Not File.Exists(CrossFilePath) Then
+                createDictionary("xWord", CrossFilePath) ' Ensure dictionary exists
+            End If
+
+            If Not File.Exists(CodeFilePath) Then
+                createDictionary("cWord", CodeFilePath)
             End If
 
             If Not File.Exists(PhraseFilePath) Then
@@ -132,9 +137,9 @@ Public Class Form1
             If Puzzle = "pWord" Then
                 DictFilePath = PhraseFilePath
             ElseIf Puzzle = "xWord" Then
-                DictFilePath = WordFilePath
+                DictFilePath = CrossFilePath
             ElseIf Puzzle = "cWord" Then
-                DictFilePath = WordFilePath
+                DictFilePath = CodeFilePath
             End If
 
             LoadDictionary(DictFilePath)
