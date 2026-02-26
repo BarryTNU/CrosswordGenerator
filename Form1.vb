@@ -118,28 +118,34 @@ Public Class Form1
             'Check if there is a dictionary. If not, Create one from the included word list
             If Not File.Exists(CrossFilePath) Then
                 createDictionary("xWord", CrossFilePath) ' Ensure dictionary exists
+
             End If
 
             If Not File.Exists(CodeFilePath) Then
                 createDictionary("cWord", CodeFilePath)
+
             End If
 
             If Not File.Exists(PhraseFilePath) Then
                 createDictionary("pWord", PhraseFilePath)
+
             End If
 
-            If Puzzle = "" Then Puzzle = "cWord" ' Default to codeword if not set
+            If Puzzle = "" Then Puzzle = "xWord" ' Default to Crossword if not set
 
             ' Puzzle = "cWord"
-            'Puzzle = "xWord"
+            ' Puzzle = "xWord"
             ' Puzzle = "pWord"
 
             If Puzzle = "pWord" Then
                 DictFilePath = PhraseFilePath
+                RbPhrase.Checked = True
             ElseIf Puzzle = "xWord" Then
                 DictFilePath = CrossFilePath
+                RbCrossword.Checked = True
             ElseIf Puzzle = "cWord" Then
                 DictFilePath = CodeFilePath
+                RbCodeword.Checked = True
             End If
 
             LoadDictionary(DictFilePath)
@@ -166,8 +172,16 @@ Public Class Form1
         Dim entry As String
         Dim Word As String
         Dim Clu As String
+        Dim WordLength As Integer = 0
         Dictionary.Clear()
         Try
+            If Puzzle = "pWord" Then
+                WordLength = 12
+            ElseIf Puzzle = "xWord" Then
+                WordLength = 12
+            ElseIf Puzzle = "cWord" Then
+                WordLength = 12
+            End If
 
             Using sr As New StreamReader(path)
                 While Not sr.EndOfStream
@@ -175,12 +189,12 @@ Public Class Form1
                     Dim parts = line.Split(","c, 2)
                     Dim w = parts(0).Trim().ToUpper()
                     Clu = If(parts.Length > 1, parts(1).Trim(), "")
-                    If Len(w) > 12 Then Continue While ' Skip lines that are too long
+                    If Len(w) > WordLength Or w = "Word" Then Continue While ' Skip lines that are too long, or the column header
                     Dictionary.Add(New Clue With {.Word = w, .Clue = Clu})
                 End While
                 sr.Close()
             End Using
-            RandomiseDictionary(200) ' Load a random selection of 200 words from the dictionary for puzzle generation. This helps ensure variety in the generated puzzles and can improve performance by working with a smaller set of words during placement.
+
         Catch ex As Exception
             MessageBox.Show("Failed to load dictionary: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
         End Try
@@ -192,6 +206,8 @@ Public Class Form1
         Dim usedIndexes As New HashSet(Of Integer)
         Dim i As Integer = 0
 
+        If count > 1000 Then count = 1000 ' Set a maximum limit to prevent excessive processing time if the dictionary is too large. Adjust this limit as needed based on performance testing and the size of your dictionary.
+
         Try
             While selected.Count < count And i < count * 10 ' Add a safety limit to prevent infinite loops
                 Dim index = rnd.Next(Dictionary.Count)
@@ -201,24 +217,6 @@ Public Class Form1
                 End If
                 i += 1
             End While
-
-            If i >= count * 10 Then
-                MsgBox("Selected " & selected.Count.ToString() & " unique words out of requested " & count.ToString() & ". Consider increasing the word list or reducing the requested count.", MessageBoxButtons.OK, "Warning")
-                Dim response = MsgBox("Do you want to reload the dictionary?", MessageBoxButtons.YesNo Or vbDefaultButton2, "Reload Dictionary")
-                If response = DialogResult.Yes Then
-                    Dim Message As String = "If you choose to download a new dictionary, a copy of your current dictionary will be saved with an auto-generated name to avoid overwriting it. Do you want to proceed with downloading a new dictionary?"
-                    Dim response2 = MsgBox(Message, MessageBoxButtons.YesNo Or vbQuestion, "Download New Dictionary")
-                    If response2 = DialogResult.Yes Then
-                        Dim newfilepath = CopyWithAutoName(PhraseFilePath) ' Save a copy of the current phrase list with an auto-generated name to avoid overwriting the existing one.
-                        DownloadFiles(DictFilePath) ' Get a new Phrase List from Camsoft.au
-
-                        LoadDictionary(DictFilePath) ' Reload the dictionary and try again
-                    End If
-                    Return
-                End If
-            End If
-
-            Dictionary = selected.OrderByDescending(Function(x) x.Word.Length).ToList() ' Sort by length for better puzzle generation
 
         Catch ex As Exception
             MessageBox.Show("An error occurred while randomizing the dictionary: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
@@ -302,24 +300,6 @@ Public Class Form1
             wc.DownloadFile(url, savePath)
         End Using
         Process.Start(savePath)
-    End Sub
-
-    Private Sub ShuffleDictList(list As List(Of Clue))
-
-        Dim rnd As New Random()
-        Try
-            For i As Integer = list.Count - 1 To 1 Step -1
-                Dim j As Integer = rnd.Next(i + 1)
-
-                Dim temp = list(i)
-                list(i) = list(j)
-                list(j) = temp
-            Next
-
-        Catch ex As Exception
-            MessageBox.Show("An error occurred while shuffling the dictionary: " & ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
-        End Try
-
     End Sub
 
 
@@ -614,6 +594,7 @@ Public Class Form1
 #Region "CROSSWORD ENGINE"
 
     Sub GeneratePuzzle() ' This is the main puzzle generation routine
+        Dim i As Integer = 0
         Try
 
             If Dictionary.Count = 0 Then
@@ -621,13 +602,22 @@ Public Class Form1
                 Return
             End If
 
+            RandomiseDictionary(Dictionary.Count - 1) ' Randomize clues to ensure variety in the generated puzzles
             Dim shuffled = Dictionary.OrderBy(Function(x) rnd.Next()).ToList()
-            Dim Words = shuffled.Take(60).OrderByDescending(Function(x) x.Word.Length).ToList()
+            Dim Words = shuffled.Take(Dictionary.Count - 1).OrderByDescending(Function(x) x.Word.Length).ToList()
+
             If Words.Count = 0 Then Return
 
-            ' Place longest of the random set in the middle of the grid, horizontally
-            PlaceWord(Words(0), GridSize \ 2, (GridSize - Words(0).Word.Length) \ 2, DirectionType.Across)
-            ' Place remaining words
+            ' Select a suitable starting word and place it in the middle of the grid, horizontally
+
+            For i = 0 To Words.Count - 1
+                If Words(i).Word.Length < 10 And Words(i).Word.Length > 7 Then 'A shorter starting word allows more flexibility in placing subsequent words. Adjust this threshold as needed based on testing and the typical lengths of words in your dictionary.
+                    PlaceWord(Words(i), GridSize \ 2, (GridSize - Words(i).Word.Length) \ 2, DirectionType.Across)
+                    Exit For
+                End If
+            Next
+
+            'Now try to place the rest of the words in the list, skipping any that can't be placed or have already been used.
             For i = 1 To Words.Count - 1
                 If WordUsed(Words(i).Word) Then Continue For
                 TryPlaceWord(Words(i))
