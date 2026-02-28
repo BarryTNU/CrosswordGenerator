@@ -1144,14 +1144,7 @@ Public Class Form1
     ' ===================== BUTTONS =====================
     Sub EditDictionary(sender As Object, e As EventArgs)
         Try
-            If Not File.Exists(ProgramPath & "\List_Editor\List_Editor.exe") Then
-                Dim message1 = "Would you like to download and install it now?"
-                Dim message2 = "Dictionary Editor not found."
-                Dim response = MessageBox.Show(message1, message2, MessageBoxButtons.YesNo, MessageBoxIcon.Error)
-                If response = DialogResult.Yes Then DownloadAndRun()
-            Else
-                Process.Start(ProgramPath & "\List_Editor\List_Editor.exe")
-            End If
+            DictionaryEditor.Show()
         Catch ex As Exception
             MessageBox.Show("Failed to launch Dictionary Editor.")
         End Try
